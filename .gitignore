@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+dist/
+mcchat.log
+assessments/
+.venv-*/
+*.egg-info/
+.claude/settings.local.json

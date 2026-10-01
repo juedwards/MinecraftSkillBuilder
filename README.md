@@ -1,0 +1,213 @@
+# Minecraft Skill Builder
+
+An AI companion for **Minecraft Education**, powered by **Azure AI Foundry**. Students chat
+with the AI in game, ask it to build things and whole villages, and take rubric-based
+building assessments with formative feedback. Teachers follow along and manage rubrics
+in a web interface.
+
+```
+Minecraft Education ──/connect──▶ Minecraft Skill Builder ──HTTPS──▶ Azure AI Foundry
+                                   └─ web interface: http://localhost:8080
+```
+
+## Quick start
+
+You need **Minecraft Education** and a model deployed in **Azure AI Foundry** (its
+endpoint, API key and deployment name). Everything else is installed on first run.
+
+1. **Get the code:** `git clone https://github.com/juedwards/MinecraftSkillBuilder.git`,
+   or download it as a ZIP from GitHub and unzip it.
+2. **Start it:**
+   - **Windows:** double-click **`Start Skill Builder.cmd`**.
+   - **WSL, macOS or Linux:** run `./start.sh` in the folder.
+
+   The first run installs [uv](https://docs.astral.sh/uv/) for your user (it brings its
+   own Python) and the app's dependencies, which takes a minute. Then the
+   **Minecraft Skill Builder** page opens in your browser. Keep the window open while you play.
+3. **Connect the AI:** on the page, open **Settings**, enter your Azure AI Foundry
+   endpoint, API key and model deployment name, and click **Test & save**.
+4. **Connect Minecraft:** in Minecraft Education, open **Settings → General**, turn on
+   **Enable Websockets** and turn off **Require Encrypted Websockets**. Open a world
+   with cheats on, open chat and type `/connect localhost:3000`.
+5. Type `!help` in chat to see what you can do.
+
+You'll find the endpoint and key in the Azure AI Foundry portal under your project's
+overview, or under **Models + endpoints** for your deployment. Any model you can call
+through the Foundry OpenAI-compatible API works (GPT, and others such as Llama or Mistral).
+
+### Running it by hand
+
+```bash
+uv run skillbuilder                   # start (same as `skillbuilder serve`)
+uv run skillbuilder --open            # ...and open the web interface
+uv run skillbuilder --trigger '!ai'   # only answer chat messages starting with !ai
+uv run skillbuilder --private         # reply only to the player who asked
+uv run skillbuilder --mock            # echo bot, no Azure needed (to test the Minecraft connection)
+uv run skillbuilder check             # send one test prompt to Azure
+```
+
+`mcchat` is an alias for `skillbuilder`.
+
+### Minecraft Skill Builder (web interface)
+
+The server also serves **Minecraft Skill Builder** at http://localhost:8080
+(`--web-port` to change it, `--no-web` to turn it off):
+
+- **Activity:** live feed of connections, player questions, AI answers, builds,
+  assessments (with each criterion's level and next steps), setup and errors, with filters.
+- **Players:** online players and everyone who has talked to the AI. View each
+  player's conversation and reset it.
+- **Rubrics:** create, edit and delete the assessment rubrics in `rubrics/`.
+- **Settings:** change the Azure endpoint, key and model (tested before saving),
+  the trigger prefix, private replies, history length and system prompt. Changes
+  apply immediately and are saved to `.env`.
+
+The web server only listens on 127.0.0.1 and rejects requests from other sites,
+because the Settings page can change credentials. The API key is never sent to the browser.
+
+### Chat commands
+
+| Command | What it does |
+|---|---|
+| (any message) | Talk to the AI (or start with the trigger prefix, if one is set). |
+| `!build <thing>` | Design and build it in front of you. |
+| `!village [style] [number]` | Build a village of ~20 buildings around you, with villagers, e.g. `!village viking`, `!village japanese 12`. |
+| `!assess` | Take a rubric-based building assessment; type `finished` when done. |
+| `!reset` | Clear your conversation with the AI. |
+| `!setup` | Connect the AI to Azure from chat (only when no credentials are set). |
+| `!cancel` | Stop setup or an assessment. |
+| `!help` | List all commands. |
+
+### Villages (`!village`)
+
+`!village viking` (or with no style, and the AI picks one) builds a village around you:
+
+1. A **planner agent** plans the village: a name, ground and path blocks, and ~20 varied
+   buildings in one style, starting with a centrepiece for the square (a well, statue...).
+2. **Builder agents** design each building in parallel (4 at a time), using the same
+   sandboxed pipeline as `!build`. A building that fails is skipped.
+3. The buildings are laid out on 11×11 plots in rings around a central square, separated by
+   3-block streets, each with its entrance facing the square. The area (about 70×70 blocks
+   for 20 buildings) is cleared and given flat ground first, so **it replaces whatever was
+   there**. You're moved to the square, and a villager is summoned outside each building.
+
+It takes about 2–3 minutes for 20 buildings. Add a number for more or fewer (4–24).
+
+### Assessments (`!assess`)
+
+`!assess` lists the rubrics in `rubrics/` (Markdown files). The student types a number to choose, then:
+
+1. The AI reads the rubric and designs a **partially completed starting scene**
+   (for example two riverbanks with an unfinished bridge). It builds the scene on its
+   own platform about 12 blocks ahead of the student, teleports them to a start point,
+   and gives them the task.
+2. While they work, their `BlockPlaced` / `BlockBroken` events and chat are recorded.
+3. When they type **finished**, every block in the task area is inspected with
+   `/testforblock` (up to 5,000 blocks) and compared with the starting scene.
+4. The AI gives **formative feedback** against the rubric: a level for each criterion
+   with evidence, strengths, and next steps to do better. It then asks whether
+   they'd like to **try again**. "yes" rebuilds the same scene for a new attempt.
+5. Each attempt is saved as a Markdown report in `assessments/`, including the
+   activity log and the inspection map.
+
+`!cancel` stops an assessment. A rubric works best with these sections: `# Title`,
+`## Learning aims`, `## Learning objectives`, `## Task`, `## Starter build` (what the
+AI builds and what it leaves for the student) and `## Assessment criteria` (a table of
+levels). See [`rubrics/build_a_bridge.md`](rubrics/build_a_bridge.md).
+
+A rubric can use a village instead: give it a `## Starter village` section describing the
+village's style. The assessment then builds a 12-building village around the student, leaving
+the plot in front of them empty, and that plot is the task area. See
+[`rubrics/build_a_village_home.md`](rubrics/build_a_village_home.md).
+
+### Building (`!build`)
+
+`!build a small oak cabin with a red roof` designs the structure with the LLM and builds
+it in front of you, with its entrance facing you. The world needs cheats on.
+
+How it works (adapted from [BuilderGPT](https://github.com/CyniaAI/BuilderGPT)):
+
+1. The LLM writes a JavaScript `buildCreation()` function using `safeFill` and
+   `safeSetBlock`, restricted to a list of Bedrock block IDs.
+2. The script runs in a QuickJS sandbox (3 s time limit, 64 MB memory, max 5,000
+   operations, max 48 blocks per side) that records the block operations.
+3. `/querytarget` finds the player's position and facing. The design is rotated to
+   face them and sent as `fill` / `setblock` commands, with large fills split to
+   Bedrock's 32,768-block limit.
+
+Only one build runs at a time. Block states (stair direction etc.) aren't supported yet.
+
+### Setting up from chat (`!setup`)
+
+The Settings page is the easiest way to add credentials. Alternatively, if the server
+starts without Azure credentials, type `!setup` in Minecraft chat. The bot asks, privately,
+for the endpoint, API key and model deployment name one at a time. It tests them and saves
+them to `.env`. Type `!cancel` to stop.
+
+- Everything a player types in chat is visible to everyone in the world, including
+  the API key. Only run `!setup` in a private world.
+- `!setup` only works while no credentials are configured, so players can't repoint
+  the bot. To change credentials later, edit `.env` and restart.
+- Only one player can run setup at a time (it times out after 5 minutes idle).
+
+## Troubleshooting
+
+- **`/connect` does nothing or says it's already connected:** Minecraft allows one
+  connection at a time. Run `/closewebsocket` (or leave and rejoin the world), then `/connect` again.
+- **Can't connect from WSL:** WSL2 normally forwards localhost to Windows.
+  If it doesn't, use the WSL IP address that the server prints, or turn on
+  mirrored networking (`networkingMode=mirrored` in `%UserProfile%\.wslconfig`, then `wsl --shutdown`).
+- **"Encrypted connection required":** turn off **Require Encrypted Websockets** in Minecraft settings.
+- **The first run can't download packages** (TLS or handshake errors): your network may
+  block or inspect downloads from PyPI. The launchers already trust the system certificate
+  store; if it still fails, ask IT to allow `pypi.org`, `files.pythonhosted.org` and `astral.sh`,
+  or run from WSL.
+- **Windows SmartScreen blocks `Start Skill Builder.cmd`:** choose **More info → Run anyway**,
+  or right-click the file → Properties → **Unblock**.
+- **No replies:** run `uv run skillbuilder check` to test Azure, and `uv run skillbuilder -v` for debug logs.
+
+## Configuration
+
+All settings live in `.env` (see `.env.example`). CLI flags override them.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `AZURE_AI_ENDPOINT` | | Foundry or Azure OpenAI endpoint (any form) |
+| `AZURE_AI_API_KEY` | | API key |
+| `AZURE_AI_MODEL` | | Model deployment name |
+| `MC_HOST` / `MC_PORT` | `0.0.0.0` / `3000` | Where the WebSocket server listens (the Windows launcher uses `127.0.0.1`) |
+| `WEB_HOST` / `WEB_PORT` | `127.0.0.1` / `8080` | Where the web interface listens |
+| `MC_TRIGGER` | (empty) | Only answer messages with this prefix |
+| `MC_REPLY_PRIVATE` | `false` | Reply only to the asking player |
+| `MAX_HISTORY` | `20` | Past messages remembered per player |
+| `SYSTEM_PROMPT` | school-friendly assistant | Custom system prompt |
+
+## Project layout
+
+```
+Start Skill Builder.cmd   Windows launcher (runs scripts/start-windows.ps1)
+start.sh                  WSL / macOS / Linux launcher
+rubrics/                  Assessment rubrics (Markdown), editable in the web interface
+assessments/              Saved assessment reports (created on first assessment, not committed)
+src/mcchat/
+  minecraft.py  WebSocket server + Minecraft protocol (subscribe, commands, tellraw)
+  llm.py        Azure AI Foundry client (OpenAI v1 API) and an echo mock
+  bridge.py     Per-player conversations, triggers, !help/!reset/!setup/!build; emits events
+  builder.py    !build: LLM build script -> QuickJS sandbox -> fill/setblock commands
+  assessment.py !assess: rubrics, starting scenes, activity recording, inspection, feedback
+  village.py    !village: planner + builder agents, plot layout, streets, villagers
+  setup_wizard.py  Step-by-step state for collecting credentials in chat
+  config.py     .env / environment settings
+  runtime.py    Wires server + bridge + LLM; event log; settings updates (shared by CLI and web)
+  webapp.py     Minecraft Skill Builder web server (aiohttp): REST API + server-sent events
+  static/       The Minecraft Skill Builder page
+  cli.py        `skillbuilder [serve]` and `skillbuilder check`
+```
+
+The CLI log and the web feed both subscribe to the runtime's `EventLog`.
+
+## Tests
+
+```bash
+uv run pytest
+```

@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minecraft Skill Builder</title>
+<style>
+  :root {
+    --bg: #f4f5f2;
+    --panel: #ffffff;
+    --panel-2: #f0f2ed;
+    --text: #1d211b;
+    --muted: #616a5c;
+    --border: #dde1d8;
+    --accent: #3c8527;
+    --accent-ink: #ffffff;
+    --accent-soft: #e3f0dc;
+    --ai: #1f6fb2;
+    --ai-soft: #e1edf8;
+    --build: #a5620f;
+    --build-soft: #f7ead8;
+    --danger: #b3261e;
+    --danger-soft: #f9e2e0;
+    --system: #6b5ca5;
+    --system-soft: #ebe7f6;
+    --assess: #0f7a72;
+    --assess-soft: #dcf1ee;
+    --radius: 10px;
+    --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141713;
+      --panel: #1c201a;
+      --panel-2: #232821;
+      --text: #e7ebe3;
+      --muted: #9aa393;
+      --border: #30362d;
+      --accent: #5fae45;
+      --accent-ink: #0e1a09;
+      --accent-soft: #23341c;
+      --ai: #6fb0ea;
+      --ai-soft: #1b2a38;
+      --build: #e0a252;
+      --build-soft: #35281a;
+      --danger: #f08a80;
+      --danger-soft: #3a1f1d;
+      --system: #b2a6e6;
+      --system-soft: #29253a;
+      --assess: #5cc9bd;
+      --assess-soft: #17302d;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+  button, input, textarea { font: inherit; color: inherit; }
+
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 17px; }
+  .logo {
+    width: 28px; height: 28px; border-radius: 6px;
+    background:
+      linear-gradient(var(--accent) 0 40%, #7a5230 40% 100%);
+    box-shadow: inset 0 0 0 2px rgba(0,0,0,.12);
+  }
+  .status { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    font-size: 13px; color: var(--muted); white-space: nowrap;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.on { background: var(--accent); }
+  .dot.warn { background: var(--build); }
+  .dot.off { background: var(--danger); }
+
+  nav {
+    display: flex; gap: 4px; padding: 0 20px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  nav button {
+    background: none; border: 0; padding: 10px 12px; cursor: pointer;
+    color: var(--muted); border-bottom: 2px solid transparent; font-weight: 550;
+  }
+  nav button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+
+  main { flex: 1; min-height: 0; padding: 20px; max-width: 1100px; width: 100%; margin: 0 auto; }
+  section[hidden] { display: none !important; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+  }
+
+  /* Activity */
+  #activity { display: flex; flex-direction: column; gap: 12px; height: 100%; }
+  .toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .chip {
+    border: 1px solid var(--border); background: var(--panel); border-radius: 999px;
+    padding: 4px 12px; cursor: pointer; font-size: 13px; color: var(--muted);
+  }
+  .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--text); border-color: var(--accent); }
+  .toolbar .count { margin-left: auto; color: var(--muted); font-size: 13px; }
+  #feed { flex: 1; min-height: 300px; overflow-y: auto; padding: 6px 0; }
+  .event {
+    display: grid; grid-template-columns: 64px 92px 1fr; gap: 10px;
+    padding: 8px 16px; align-items: baseline;
+  }
+  .event + .event { border-top: 1px solid var(--border); }
+  .event time { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .tag {
+    justify-self: start; font-size: 11.5px; font-weight: 650; letter-spacing: .02em;
+    padding: 2px 8px; border-radius: 6px; text-transform: uppercase;
+  }
+  .tag.player { background: var(--accent-soft); color: var(--accent); }
+  .tag.ai { background: var(--ai-soft); color: var(--ai); }
+  .tag.build { background: var(--build-soft); color: var(--build); }
+  .tag.error { background: var(--danger-soft); color: var(--danger); }
+  .tag.system { background: var(--system-soft); color: var(--system); }
+  .tag.assess { background: var(--assess-soft); color: var(--assess); }
+  .levels { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 6px; }
+  .level { font-size: 12.5px; padding: 1px 8px; border-radius: 999px; background: var(--assess-soft); }
+  .level b { font-weight: 600; }
+  .steps { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; }
+  .report { color: var(--muted); font-size: 12.5px; margin-top: 4px; overflow-wrap: anywhere; }
+  .event .body { min-width: 0; overflow-wrap: anywhere; }
+  .event .who { font-weight: 600; margin-right: 6px; }
+  .empty { color: var(--muted); text-align: center; padding: 48px 16px; }
+
+  /* Players */
+  #players { display: grid; grid-template-columns: 260px 1fr; gap: 16px; height: 100%; }
+  #player-list { overflow-y: auto; padding: 6px; }
+  .player {
+    width: 100%; display: flex; align-items: center; gap: 10px;
+    background: none; border: 0; border-radius: 8px; padding: 9px 10px; cursor: pointer; text-align: left;
+  }
+  .player:hover { background: var(--panel-2); }
+  .player[aria-current="true"] { background: var(--accent-soft); }
+  .player .name { flex: 1; font-weight: 550; overflow: hidden; text-overflow: ellipsis; }
+  .player .meta { color: var(--muted); font-size: 12.5px; }
+  #conversation { display: flex; flex-direction: column; min-height: 300px; }
+  .conv-head {
+    display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .conv-head h2 { font-size: 16px; margin: 0; flex: 1; }
+  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  .bubble { max-width: 78%; padding: 8px 12px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .bubble.user { align-self: flex-end; background: var(--accent-soft); border-bottom-right-radius: 4px; }
+  .bubble.assistant { align-self: flex-start; background: var(--ai-soft); border-bottom-left-radius: 4px; }
+
+  /* Rubrics */
+  #rubrics { display: grid; grid-template-columns: 260px 1fr; gap: 16px; height: 100%; }
+  #rubric-side { display: flex; flex-direction: column; min-height: 0; }
+  #rubric-side .side-head { padding: 10px; border-bottom: 1px solid var(--border); }
+  #rubric-side .side-head .btn { width: 100%; }
+  #rubric-list { overflow-y: auto; padding: 6px; flex: 1; }
+  #rubric-editor { display: flex; flex-direction: column; padding: 16px; gap: 12px; min-height: 420px; }
+  #rubric-editor .field { margin: 0; }
+  #rubric-text {
+    flex: 1; min-height: 360px;
+    font: 13.5px/1.55 ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  #rubric-editor .row .spacer { flex: 1; }
+
+  /* Settings */
+  #settings { display: grid; gap: 16px; max-width: 760px; }
+  .card h2 { font-size: 16px; margin: 0 0 4px; }
+  .card .hint { color: var(--muted); margin: 0 0 16px; font-size: 13.5px; }
+  .card.pad { padding: 20px; }
+  .field { display: grid; gap: 6px; margin-bottom: 14px; }
+  .field label { font-weight: 550; font-size: 14px; }
+  .field small { color: var(--muted); font-size: 12.5px; }
+  input[type="text"], input[type="password"], input[type="number"], textarea {
+    width: 100%; padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--panel-2);
+  }
+  input:focus-visible, textarea:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  textarea { min-height: 130px; resize: vertical; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; margin-bottom: 14px; }
+  .toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .btn {
+    border: 1px solid var(--border); background: var(--panel); border-radius: 8px;
+    padding: 8px 14px; cursor: pointer; font-weight: 550;
+  }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .btn.danger { color: var(--danger); }
+  .btn:disabled { opacity: .55; cursor: progress; }
+  .notice { padding: 10px 12px; border-radius: 8px; font-size: 14px; margin-top: 12px; }
+  .notice.ok { background: var(--accent-soft); }
+  .notice.err { background: var(--danger-soft); color: var(--danger); }
+
+  @media (max-width: 720px) {
+    header { padding: 10px 16px; }
+    nav { padding: 0 10px; }
+    main { padding: 12px 16px; }
+    .status { margin-left: 0; width: 100%; }
+    .event { grid-template-columns: 1fr; gap: 2px; padding: 8px 12px; }
+    #players, #rubrics { grid-template-columns: 1fr; }
+    #player-list, #rubric-list { max-height: 220px; }
+    .bubble { max-width: 92%; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><div class="logo" aria-hidden="true"></div>Minecraft Skill Builder</div>
+  <div class="status">
+    <span class="pill" id="mc-status"><span class="dot"></span><span>Minecraft</span></span>
+    <span class="pill" id="ai-status"><span class="dot"></span><span>AI</span></span>
+    <span class="pill" id="build-status" hidden><span class="dot warn"></span><span></span></span>
+    <span class="pill" id="assess-status" hidden><span class="dot on"></span><span></span></span>
+  </div>
+</header>
+<nav role="tablist">
+  <button role="tab" aria-selected="true" data-tab="activity">Activity</button>
+  <button role="tab" aria-selected="false" data-tab="players">Players</button>
+  <button role="tab" aria-selected="false" data-tab="rubrics">Rubrics</button>
+  <button role="tab" aria-selected="false" data-tab="settings">Settings</button>
+</nav>
+<main>
+  <section id="activity">
+    <div class="toolbar" role="group" aria-label="Filter activity">
+      <button class="chip" data-filter="all" aria-pressed="true">All</button>
+      <button class="chip" data-filter="chat" aria-pressed="false">Chat</button>
+      <button class="chip" data-filter="build" aria-pressed="false">Builds</button>
+      <button class="chip" data-filter="assess" aria-pressed="false">Assessments</button>
+      <button class="chip" data-filter="system" aria-pressed="false">System</button>
+      <button class="chip" data-filter="error" aria-pressed="false">Errors</button>
+      <span class="count" id="event-count"></span>
+    </div>
+    <div class="card" id="feed" aria-live="polite">
+      <div class="empty">Waiting for activity. Connect Minecraft with <code>/connect localhost:3000</code>.</div>
+    </div>
+  </section>
+
+  <section id="players" hidden>
+    <div class="card" id="player-list"><div class="empty">No players yet.</div></div>
+    <div class="card" id="conversation">
+      <div class="conv-head">
+        <h2 id="conv-title">Select a player</h2>
+        <button class="btn danger" id="reset-btn" hidden>Reset conversation</button>
+      </div>
+      <div id="messages"><div class="empty">Pick a player to see their conversation with the AI.</div></div>
+    </div>
+  </section>
+
+  <section id="rubrics" hidden>
+    <div class="card" id="rubric-side">
+      <div class="side-head"><button class="btn" type="button" id="new-rubric">+ New rubric</button></div>
+      <div id="rubric-list"><div class="empty">No rubrics yet.</div></div>
+    </div>
+    <form class="card" id="rubric-editor">
+      <div class="field">
+        <label for="rubric-id">File name</label>
+        <input type="text" id="rubric-id" placeholder="build_a_bridge" spellcheck="false" autocomplete="off" pattern="[a-z0-9][a-z0-9_\-]*">
+        <small>Saved as <code>rubrics/<span id="rubric-file">…</span>.md</code>. Lowercase letters, numbers, - and _.</small>
+      </div>
+      <div class="field" style="flex: 1; display: flex; flex-direction: column;">
+        <label for="rubric-text">Rubric (Markdown)</label>
+        <textarea id="rubric-text" spellcheck="true"></textarea>
+        <small>Start with a <code># Title</code>. Sections the AI uses: Learning aims, Learning objectives, Task, Starter build, Assessment criteria.</small>
+      </div>
+      <div class="row">
+        <button class="btn primary" type="submit">Save rubric</button>
+        <span class="spacer"></span>
+        <button class="btn danger" type="button" id="delete-rubric" hidden>Delete</button>
+      </div>
+      <div class="notice" id="rubric-notice" hidden></div>
+    </form>
+  </section>
+
+  <section id="settings" hidden>
+    <form class="card pad" id="ai-form">
+      <h2>AI connection</h2>
+      <p class="hint">Azure AI Foundry credentials. Changes are tested before they're saved to <code>.env</code>.</p>
+      <div class="field">
+        <label for="azure_endpoint">Endpoint</label>
+        <input type="text" id="azure_endpoint" placeholder="https://my-resource.openai.azure.com/" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="api_key">API key</label>
+        <input type="password" id="api_key" autocomplete="new-password" spellcheck="false">
+        <small id="api_key_hint"></small>
+      </div>
+      <div class="field">
+        <label for="azure_model">Model deployment name</label>
+        <input type="text" id="azure_model" placeholder="gpt-4o-mini" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="row"><button class="btn primary" type="submit">Test &amp; save</button></div>
+      <div class="notice" id="ai-notice" hidden></div>
+    </form>
+
+    <form class="card pad" id="chat-form">
+      <h2>Chat behaviour</h2>
+      <p class="hint">Applies immediately to everyone connected.</p>
+      <div class="field">
+        <label for="trigger">Trigger prefix</label>
+        <input type="text" id="trigger" placeholder="(empty: answer every message)" maxlength="20" spellcheck="false">
+        <small>If set, the AI only answers chat messages that start with this, e.g. <code>!ai</code>.</small>
+      </div>
+      <label class="toggle"><input type="checkbox" id="reply_private"> Reply privately to the player who asked</label>
+      <div class="field">
+        <label for="max_history">Messages remembered per player</label>
+        <input type="number" id="max_history" min="0" max="200" style="max-width: 120px">
+      </div>
+      <div class="field">
+        <label for="system_prompt">System prompt</label>
+        <textarea id="system_prompt" maxlength="4000"></textarea>
+        <small>How the AI should behave. Builds use their own prompt.</small>
+      </div>
+      <div class="row">
+        <button class="btn primary" type="submit">Save</button>
+        <button class="btn" type="button" id="default-prompt">Use default prompt</button>
+      </div>
+      <div class="notice" id="chat-notice" hidden></div>
+    </form>
+  </section>
+</main>
+
+<script>
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+
+async function api(path, options = {}) {
+  const response = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  return data;
+}
+
+function el(tag, props = {}, ...children) {
+  const node = Object.assign(document.createElement(tag), props);
+  node.append(...children.filter(c => c !== null && c !== undefined));
+  return node;
+}
+
+/* ---------- Tabs ---------- */
+let currentTab = "activity";
+function showTab(name) {
+  currentTab = name;
+  for (const btn of $$("nav button")) btn.setAttribute("aria-selected", String(btn.dataset.tab === name));
+  for (const section of $$("main > section")) section.hidden = section.id !== name;
+  if (name === "players") loadPlayers();
+  if (name === "rubrics") loadRubrics();
+  if (name === "settings") loadSettings();
+}
+for (const btn of $$("nav button")) btn.addEventListener("click", () => showTab(btn.dataset.tab));
+
+/* ---------- Status ---------- */
+async function refreshStatus() {
+  try {
+    const s = await api("/api/status");
+    const n = s.minecraft.connections.length;
+    setPill("#mc-status", n ? "on" : "off", n ? `Minecraft connected${n > 1 ? ` (${n})` : ""}` : `Waiting for Minecraft on :${s.minecraft.port}`);
+    setPill("#ai-status", s.ai.configured ? "on" : "warn", s.ai.configured ? `AI: ${s.ai.model}` : "AI not set up");
+    const build = $("#build-status");
+    build.hidden = !s.building;
+    if (s.building) $("span:last-child", build).textContent = `Building for ${s.building}`;
+    const active = s.assessments.filter(a => a.state !== "choosing");
+    const assess = $("#assess-status");
+    assess.hidden = !active.length;
+    $("span:last-child", assess).textContent = active.length === 1
+      ? `Assessing ${active[0].player}`
+      : `${active.length} assessments running`;
+  } catch {
+    setPill("#mc-status", "off", "Skill Builder offline");
+  }
+}
+function setPill(sel, state, text) {
+  const pill = $(sel);
+  $(".dot", pill).className = `dot ${state}`;
+  $("span:last-child", pill).textContent = text;
+}
+
+/* ---------- Activity feed ---------- */
+const EVENT_KINDS = {
+  question: { tag: "Player", cls: "player", group: "chat" },
+  answer: { tag: "AI", cls: "ai", group: "chat" },
+  build: { tag: "Build", cls: "build", group: "build" },
+  assess: { tag: "Assess", cls: "assess", group: "assess" },
+  assessment: { tag: "Feedback", cls: "assess", group: "assess" },
+  error: { tag: "Error", cls: "error", group: "error" },
+  setup: { tag: "Setup", cls: "system", group: "system" },
+  settings: { tag: "Settings", cls: "system", group: "system" },
+  reset: { tag: "Reset", cls: "system", group: "system" },
+  connected: { tag: "Minecraft", cls: "system", group: "system" },
+  disconnected: { tag: "Minecraft", cls: "system", group: "system" },
+};
+const seen = new Set();
+let filter = "all";
+
+function describe(e) {
+  switch (e.type) {
+    case "question": return [e.player, e.text];
+    case "answer": return [`to ${e.player}`, e.text];
+    case "error": return [e.player, e.error];
+    case "build": case "setup": case "assess": return [e.player, e.status];
+    case "assessment": return [e.player, `${e.rubric}, attempt ${e.attempt}: ${e.summary}`];
+    case "settings": return [null, e.status];
+    case "reset": return [e.player, "conversation cleared"];
+    case "connected": return [null, `Connected from ${e.remote}`];
+    case "disconnected": return [null, `Disconnected (${e.remote})`];
+    default: return [null, JSON.stringify(e)];
+  }
+}
+
+function addEvent(e) {
+  if (seen.has(e.id)) return;
+  seen.add(e.id);
+  const kind = EVENT_KINDS[e.type] || { tag: e.type, cls: "system", group: "system" };
+  const isError = kind.group === "error" || (["build", "assess"].includes(e.type) && /failed/.test(e.status || ""));
+  const [who, text] = describe(e);
+  const body = el("div", { className: "body" }, who ? el("span", { className: "who", textContent: who }) : null, text || "");
+  if (e.type === "assessment") {
+    if (e.criteria?.length) {
+      body.append(el("div", { className: "levels" },
+        ...e.criteria.map(c => el("span", { className: "level", title: c.evidence || "" },
+          `${c.name}: `, el("b", { textContent: c.level })))));
+    }
+    if (e.next_steps?.length) body.append(el("ol", { className: "steps" }, ...e.next_steps.map(s => el("li", { textContent: s }))));
+    if (e.report) body.append(el("div", { className: "report", textContent: `Report: ${e.report}` }));
+  }
+  const row = el("div", { className: "event" },
+    el("time", { dateTime: e.time, textContent: e.time.slice(11, 19) }),
+    el("span", { className: `tag ${isError ? "error" : kind.cls}`, textContent: kind.tag }),
+    body,
+  );
+  row.dataset.group = isError ? "error" : kind.group;
+  row.hidden = !matches(row);
+
+  const feed = $("#feed");
+  $(".empty", feed)?.remove();
+  const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
+  feed.append(row);
+  while (feed.children.length > 1000) feed.firstElementChild.remove();
+  if (atBottom) feed.scrollTop = feed.scrollHeight;
+  updateCount();
+
+  if (["connected", "disconnected", "build", "settings", "setup", "assess", "assessment"].includes(e.type)) refreshStatus();
+  if (currentTab === "players" && ["question", "answer", "reset"].includes(e.type)) loadPlayers();
+}
+
+function matches(row) { return filter === "all" || row.dataset.group === filter; }
+function updateCount() {
+  const rows = $$("#feed .event");
+  const shown = rows.filter(r => !r.hidden).length;
+  $("#event-count").textContent = rows.length ? `${shown} event${shown === 1 ? "" : "s"}` : "";
+}
+for (const chip of $$(".chip")) {
+  chip.addEventListener("click", () => {
+    filter = chip.dataset.filter;
+    for (const c of $$(".chip")) c.setAttribute("aria-pressed", String(c === chip));
+    for (const row of $$("#feed .event")) row.hidden = !matches(row);
+    updateCount();
+    $("#feed").scrollTop = $("#feed").scrollHeight;
+  });
+}
+
+function connectEvents() {
+  const source = new EventSource("/api/events");
+  source.onmessage = msg => addEvent(JSON.parse(msg.data));
+  source.onerror = () => refreshStatus();
+}
+
+/* ---------- Players ---------- */
+let selectedPlayer = null;
+
+async function loadPlayers() {
+  const list = $("#player-list");
+  let players;
+  try { players = await api("/api/players"); } catch { return; }
+  list.replaceChildren();
+  if (!players.length) { list.append(el("div", { className: "empty", textContent: "No players yet." })); return; }
+  for (const p of players) {
+    const btn = el("button", { className: "player", type: "button" },
+      el("span", { className: `dot ${p.online ? "on" : ""}`, title: p.online ? "Online" : "Offline" }),
+      el("span", { className: "name", textContent: p.name }),
+      el("span", { className: "meta", textContent: p.messages ? `${p.messages} msgs` : "" }),
+    );
+    btn.setAttribute("aria-current", String(p.name === selectedPlayer));
+    btn.addEventListener("click", () => selectPlayer(p.name));
+    list.append(btn);
+  }
+  if (selectedPlayer) loadHistory(selectedPlayer);
+}
+
+function selectPlayer(name) {
+  selectedPlayer = name;
+  for (const btn of $$("#player-list .player")) btn.setAttribute("aria-current", String($(".name", btn).textContent === name));
+  loadHistory(name);
+}
+
+async function loadHistory(name) {
+  const { history } = await api(`/api/players/${encodeURIComponent(name)}/history`);
+  if (name !== selectedPlayer) return;
+  $("#conv-title").textContent = name;
+  $("#reset-btn").hidden = !history.length;
+  const box = $("#messages");
+  box.replaceChildren();
+  if (!history.length) {
+    box.append(el("div", { className: "empty", textContent: `${name} hasn't talked to the AI yet (or their conversation was reset).` }));
+    return;
+  }
+  for (const m of history) box.append(el("div", { className: `bubble ${m.role}`, textContent: m.content }));
+  box.scrollTop = box.scrollHeight;
+}
+
+$("#reset-btn").addEventListener("click", async () => {
+  if (!selectedPlayer || !confirm(`Clear ${selectedPlayer}'s conversation with the AI?`)) return;
+  await api(`/api/players/${encodeURIComponent(selectedPlayer)}/history`, { method: "DELETE" });
+  loadPlayers();
+});
+
+/* ---------- Rubrics ---------- */
+let selectedRubric = null;  // id of the rubric being edited, or null for a new one
+const RUBRIC_TEMPLATE = `# Rubric title
+
+## Learning aims
+
+What students should understand by the end.
+
+## Learning objectives
+
+1. **Objective.** What the student can do.
+
+## Task
+
+What the student is asked to build. End with: Type **finished** in chat when you are done.
+
+## Starter build
+
+The partially completed scene the AI builds before the student starts, and which part is left for the student.
+
+## Assessment criteria
+
+| Criterion | Beginning | Developing | Secure | Excellent |
+|---|---|---|---|---|
+| Criterion name | ... | ... | ... | ... |
+`;
+
+async function loadRubrics() {
+  const list = $("#rubric-list");
+  const rubrics = await api("/api/rubrics");
+  list.replaceChildren();
+  if (!rubrics.length) list.append(el("div", { className: "empty", textContent: "No rubrics yet." }));
+  for (const r of rubrics) {
+    const btn = el("button", { className: "player", type: "button" },
+      el("span", { className: "name", textContent: r.title }),
+      el("span", { className: "meta", textContent: r.id }));
+    btn.setAttribute("aria-current", String(r.id === selectedRubric));
+    btn.addEventListener("click", () => openRubric(r.id));
+    list.append(btn);
+  }
+  if (selectedRubric === null && !$("#rubric-text").value) {
+    if (rubrics.length) openRubric(rubrics[0].id); else newRubric();
+  }
+}
+
+async function openRubric(id) {
+  const rubric = await api(`/api/rubrics/${encodeURIComponent(id)}`);
+  selectedRubric = id;
+  $("#rubric-id").value = id;
+  $("#rubric-id").readOnly = true;
+  $("#rubric-file").textContent = id;
+  $("#rubric-text").value = rubric.text;
+  $("#delete-rubric").hidden = false;
+  $("#rubric-notice").hidden = true;
+  for (const btn of $$("#rubric-list .player")) btn.setAttribute("aria-current", String($(".meta", btn).textContent === id));
+}
+
+function newRubric() {
+  selectedRubric = null;
+  $("#rubric-id").value = "";
+  $("#rubric-id").readOnly = false;
+  $("#rubric-file").textContent = "…";
+  $("#rubric-text").value = RUBRIC_TEMPLATE;
+  $("#delete-rubric").hidden = true;
+  $("#rubric-notice").hidden = true;
+  for (const btn of $$("#rubric-list .player")) btn.setAttribute("aria-current", "false");
+  $("#rubric-id").focus();
+}
+
+$("#new-rubric").addEventListener("click", newRubric);
+$("#rubric-id").addEventListener("input", e => { $("#rubric-file").textContent = e.target.value || "…"; });
+
+$("#rubric-editor").addEventListener("submit", async e => {
+  e.preventDefault();
+  const id = $("#rubric-id").value.trim();
+  if (!id) { notice("#rubric-notice", false, "Enter a file name."); return; }
+  try {
+    const rubric = await api(`/api/rubrics/${encodeURIComponent(id)}`, {
+      method: "PUT", body: JSON.stringify({ text: $("#rubric-text").value }),
+    });
+    selectedRubric = rubric.id;
+    await loadRubrics();
+    await openRubric(rubric.id);
+    notice("#rubric-notice", true, `Saved "${rubric.title}". Players can choose it with !assess.`);
+  } catch (err) {
+    notice("#rubric-notice", false, err.message);
+  }
+});
+
+$("#delete-rubric").addEventListener("click", async () => {
+  if (!selectedRubric || !confirm(`Delete the rubric "${selectedRubric}"? This deletes rubrics/${selectedRubric}.md.`)) return;
+  try {
+    await api(`/api/rubrics/${encodeURIComponent(selectedRubric)}`, { method: "DELETE" });
+    selectedRubric = null;
+    $("#rubric-text").value = "";
+    await loadRubrics();
+  } catch (err) {
+    notice("#rubric-notice", false, err.message);
+  }
+});
+
+/* ---------- Settings ---------- */
+let defaultPrompt = "";
+
+async function loadSettings() {
+  const s = await api("/api/settings");
+  defaultPrompt = s.default_system_prompt;
+  $("#azure_endpoint").value = s.azure_endpoint;
+  $("#azure_model").value = s.azure_model;
+  $("#api_key").value = "";
+  $("#api_key").placeholder = s.api_key_set ? "•••••••• (saved)" : "Paste your API key";
+  $("#api_key_hint").textContent = s.api_key_set ? "Leave blank to keep the saved key." : "";
+  $("#trigger").value = s.trigger;
+  $("#reply_private").checked = s.reply_private;
+  $("#max_history").value = s.max_history;
+  $("#system_prompt").value = s.system_prompt;
+}
+
+function notice(sel, ok, text) {
+  const box = $(sel);
+  box.hidden = false;
+  box.className = `notice ${ok ? "ok" : "err"}`;
+  box.textContent = text;
+}
+
+async function submitSettings(form, payload, noticeSel, busyText, okText) {
+  const button = $("button[type=submit]", form);
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = busyText;
+  try {
+    await api("/api/settings", { method: "POST", body: JSON.stringify(payload) });
+    notice(noticeSel, true, okText);
+    await loadSettings();
+    refreshStatus();
+  } catch (err) {
+    notice(noticeSel, false, err.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+}
+
+$("#ai-form").addEventListener("submit", e => {
+  e.preventDefault();
+  const payload = { azure_endpoint: $("#azure_endpoint").value.trim(), azure_model: $("#azure_model").value.trim() };
+  const key = $("#api_key").value.trim();
+  if (key) payload.api_key = key;
+  submitSettings(e.target, payload, "#ai-notice", "Testing…", "Connected and saved.");
+});
+
+$("#chat-form").addEventListener("submit", e => {
+  e.preventDefault();
+  submitSettings(e.target, {
+    trigger: $("#trigger").value.trim(),
+    reply_private: $("#reply_private").checked,
+    max_history: Number($("#max_history").value),
+    system_prompt: $("#system_prompt").value,
+  }, "#chat-notice", "Saving…", "Saved.");
+});
+
+$("#default-prompt").addEventListener("click", () => { $("#system_prompt").value = defaultPrompt; });
+
+/* ---------- Start ---------- */
+refreshStatus();
+setInterval(refreshStatus, 5000);
+connectEvents();
+</script>
+</body>
+</html>
