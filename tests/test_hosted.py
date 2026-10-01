@@ -49,7 +49,7 @@ def test_hosted_pages_require_sign_in(tmp_path, monkeypatch):
     anonymous, page, status, cross_site = run(hosted_runtime(tmp_path), scenario)
     assert anonymous == 401 and page == 200 and cross_site == 403
     assert status["user"] == "teacher@school.example"
-    assert status["connect"] == "/connect wss://msb.example.net/mc/secret-123"
+    assert status["connect"] == "/connect ws://msb.example.net/mc/secret-123"
 
 
 def test_public_url_overrides_connect_address(tmp_path, monkeypatch):
@@ -60,7 +60,7 @@ def test_public_url_overrides_connect_address(tmp_path, monkeypatch):
     async def scenario(client):
         return await (await client.get("/api/status", headers=SIGNED_IN)).json()
 
-    assert run(runtime, scenario)["connect"] == "/connect wss://skills.example.org/mc/secret-123"
+    assert run(runtime, scenario)["connect"] == "/connect ws://skills.example.org/mc/secret-123"
 
 
 def player_message(sender: str, text: str) -> str:

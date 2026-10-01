@@ -69,7 +69,7 @@ if ($CodeOnly) {
     Write-Host "                 web app $hostName (Python 3.12, WebSockets, Always On)"
     Write-Host "                 Entra ID app registration 'Minecraft Skill Builder ($AppName)' for sign-in"
 }
-Write-Host "  Minecraft    : /connect wss://$hostName/mc/$joinCode"
+Write-Host "  Minecraft    : /connect ws://$hostName/mc/$joinCode"
 Write-Host ""
 if (-not $Yes) {
     $answer = Read-Host "Type yes to continue"
@@ -83,8 +83,11 @@ if (-not $CodeOnly) {
     $model = if ($dotenv.AZURE_AI_MODEL) { $dotenv.AZURE_AI_MODEL } else { $dotenv.AZURE_OPENAI_DEPLOYMENT_NAME }
 
     Write-Host "Creating the resource group, plan and web app..." -ForegroundColor Cyan
-    Invoke-Az group create -n $ResourceGroup -l $Location -o none
-    Invoke-Az appservice plan create -g $ResourceGroup -n $plan --is-linux --sku $Sku -o none
+    if ((Invoke-Az group exists -n $ResourceGroup) -ne "true") {
+        Invoke-Az group create -n $ResourceGroup -l $Location -o none
+    }
+    # Some subscriptions have no App Service quota in some regions: try another -Location if this fails.
+    Invoke-Az appservice plan create -g $ResourceGroup -n $plan --is-linux --sku $Sku -l $Location -o none
     $exists = az webapp show -g $ResourceGroup -n $AppName --query name -o tsv 2>$null
     if (-not $exists) { Invoke-Az webapp create -g $ResourceGroup -p $plan -n $AppName --runtime "PYTHON:3.12" -o none }
     Invoke-Az webapp config set -g $ResourceGroup -n $AppName --web-sockets-enabled true --always-on true `
@@ -130,7 +133,7 @@ if (-not $CodeOnly) {
                 }
             }
             login = @{ tokenStore = @{ enabled = $true } }
-            httpSettings = @{ requireHttps = $false }   # allow ws:// as a fallback for Minecraft
+            httpSettings = @{ requireHttps = $false }   # Minecraft Education connects with plain ws://
         }
     } | ConvertTo-Json -Depth 10
     $authFile = New-TemporaryFile
@@ -159,6 +162,6 @@ Remove-Item $zipPath
 Write-Host ""
 Write-Host "Done." -ForegroundColor Green
 Write-Host "  Teacher page : https://$hostName  (sign in with your Microsoft account)"
-Write-Host "  Minecraft    : /connect wss://$hostName/mc/$joinCode"
+Write-Host "  Minecraft    : /connect ws://$hostName/mc/$joinCode"
 Write-Host "  Logs         : az webapp log tail -g $ResourceGroup -n $AppName"
 Write-Host "  Remove all   : az group delete -n $ResourceGroup"

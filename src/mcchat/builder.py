@@ -133,7 +133,7 @@ Rules:
 - The code MUST be enclosed in <code></code> tags, be synchronous (no async/await) and work in \
 one shot; there is no opportunity for iteration.
 - startY is ground level. Blocks above ground go above startY; floors and foundations go at startY.
-- The creation must fit within 32 blocks along X and Z and 32 blocks tall.
+- The creation must fit within %WIDTH% blocks along X and Z and %HEIGHT% blocks tall.
 - Build from startX/startZ towards +X and +Z. The front or entrance must face -Z (the side \
 with the lowest Z); that side will face the player.
 - The terrain may not be flat or empty: clear the space with "air" first if needed, and lay \
@@ -215,8 +215,11 @@ class BuildResult:
     first_error: str = ""
 
 
-def build_prompt() -> str:
-    return BUILD_SYSTEM_PROMPT.replace("%BLOCKS%", ", ".join(sorted(BEDROCK_BLOCKS)))
+def build_prompt(width: int = 32, height: int = 32) -> str:
+    return (
+        BUILD_SYSTEM_PROMPT.replace("%BLOCKS%", ", ".join(sorted(BEDROCK_BLOCKS)))
+        .replace("%WIDTH%", str(width)).replace("%HEIGHT%", str(height))
+    )
 
 
 def extract_code(text: str) -> str:
@@ -254,12 +257,12 @@ def _parse_op(raw: list) -> BuildOp | None:
     )
 
 
-def run_build_script(code: str) -> list[BuildOp]:
+def run_build_script(code: str, max_size: int = MAX_SIZE) -> list[BuildOp]:
     """Run the model's JavaScript in a sandbox and return its block operations."""
-    return run_design_script(code).ops
+    return run_design_script(code, max_size).ops
 
 
-def run_design_script(code: str) -> Design:
+def run_design_script(code: str, max_size: int = MAX_SIZE) -> Design:
     """Run the model's JavaScript in a sandbox and return its operations and marks."""
     # As in BuilderGPT: tolerate async/await even though the prompt forbids it.
     code = re.sub(r"\basync\s+function\b", "function", code)
@@ -283,8 +286,8 @@ def run_design_script(code: str) -> Design:
         raise BuildError("The design didn't contain any usable blocks.")
     ops = add_supports(ops)
     width, height, depth = bounding_size(ops)
-    if max(width, height, depth) > MAX_SIZE:
-        raise BuildError(f"The design is too big ({width}x{height}x{depth}, max {MAX_SIZE} per side).")
+    if max(width, height, depth) > max_size:
+        raise BuildError(f"The design is too big ({width}x{height}x{depth}, max {max_size} per side).")
 
     start = area = None
     if isinstance(marks.get("start"), list) and len(marks["start"]) == 3:
@@ -398,13 +401,13 @@ def to_commands(ops: list[BuildOp]) -> list[str]:
     return commands
 
 
-async def design(llm: ChatModel, request: str) -> list[BuildOp]:
+async def design(llm: ChatModel, request: str, width: int = 32, height: int = 32, max_size: int = MAX_SIZE) -> list[BuildOp]:
     """Ask the LLM for a build script and run it."""
     reply = await llm.complete([
-        {"role": "system", "content": build_prompt()},
+        {"role": "system", "content": build_prompt(width, height)},
         {"role": "user", "content": request},
     ])
-    return await asyncio.to_thread(run_build_script, extract_code(reply))
+    return await asyncio.to_thread(run_build_script, extract_code(reply), max_size)
 
 
 async def build_for_player(

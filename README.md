@@ -125,9 +125,19 @@ the approach used by [Arnis](https://github.com/louis-e/arnis), done live with c
    from the Overpass API for a square around it.
 3. Everything is projected onto the block grid: areas are filled, lines are drawn at their real
    widths, river outlines made of many pieces are joined, and buildings are raised to their real
-   height (`height` or `building:levels`) with walls, window bands and roofs. Materials come from
-   the building type and its `building:colour` / `building:material` tags.
-4. The area is cleared and built with merged `fill` commands; you're moved to open ground first.
+   height (`height` or `building:levels`, up to 160 blocks) with walls, window bands and roofs.
+   Materials come from the building type and its `building:colour` / `building:material` tags;
+   steel structures (towers, masts) become a lattice of iron bars.
+4. **3D shapes.** Where OpenStreetMap has "Simple 3D Buildings" data, each `building:part` is built
+   from its own `min_height` to `height` with its `roof:shape` (pyramidal, hipped, gabled, dome,
+   onion, cone), replacing the flat outline. Many landmarks are mapped this way: the Eiffel Tower's
+   legs, platforms, tiers, dome and antenna; the Leaning Tower of Pisa's tiers and bell chamber;
+   the Colosseum's rings.
+5. **AI landmark models.** Famous structures that have only a flat outline (a Wikidata entry plus
+   a landmark tag such as `tourism`, `historic` or `man_made`) are modelled by the AI at their
+   real footprint and height: always the place you asked for, and up to 2 big landmarks per map.
+   (Arnis ships hand-built models for a few landmarks; ours are designed on demand.)
+6. The area is cleared and built with merged `fill` commands; you're moved to open ground first.
 
 Options: a size in blocks (32–128, default 96) and metres per block (0.5–10, default 2), e.g.
 `!map big ben 120 3`. The terrain is flat. `!map` doesn't need the AI, so it works without Azure.
@@ -216,9 +226,12 @@ It creates a resource group, App Service plan and web app (WebSockets and Always
 Entra ID app registration for sign-in, and the app settings (your Azure AI endpoint, key and
 model come from your local `.env`). How it works when hosted (`HOSTED=true`):
 
-- **One address.** Minecraft connects to `wss://<app>.azurewebsites.net/mc/<join code>`; the
+- **One address.** Minecraft connects to `ws://<app>.azurewebsites.net/mc/<join code>`; the
   exact `/connect` command is shown at the top of the Activity tab. The secret **join code**
-  stops strangers using your AI. (Plain `ws://` works too, in case Minecraft needs it.)
+  stops strangers using your AI. Minecraft Education uses plain `ws://` (it didn't accept
+  `wss://` in testing), so this connection isn't encrypted: treat the join code as a classroom
+  password, not a secret for sensitive data. To change it, remove `joinCode` from
+  `deploy/azure/.deploy-state.json` and rerun the deploy script (without `-CodeOnly`).
 - **Sign-in.** The teacher pages need Microsoft Entra ID sign-in, using App Service's built-in
   authentication. The app refuses to show them if that sign-in isn't switched on. Only accounts
   in your directory can sign in; invite other teachers as guests.

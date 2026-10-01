@@ -100,9 +100,10 @@ def connect_command(request: web.Request) -> str:
     settings = request.app[RUNTIME].settings
     if not settings.hosted:
         return f"/connect localhost:{request.app[RUNTIME].server.port}"
-    base = settings.public_url or f"{request.headers.get('X-Forwarded-Proto', request.scheme)}://{request.host}"
-    base = base.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
-    return f"/connect {base}/mc/{settings.join_code}"
+    # Minecraft Education connects with plain ws:// (in testing it didn't accept wss://), so the
+    # hosting must allow unencrypted HTTP for /mc; the join code is what keeps strangers out.
+    host = urlsplit(settings.public_url).netloc if settings.public_url else request.host
+    return f"/connect ws://{host}/mc/{settings.join_code}"
 
 
 async def status(request: web.Request) -> web.Response:

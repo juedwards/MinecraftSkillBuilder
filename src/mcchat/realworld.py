@@ -2,8 +2,14 @@
 
 Our own implementation of the approach used by Arnis (https://github.com/louis-e/arnis):
 geocode the place, download its OpenStreetMap features from the Overpass API, project them onto
-a block grid, rasterise areas and lines, extrude buildings to their real heights, and place it
-all with `fill` commands. The terrain is flat for now.
+a block grid, rasterise areas and lines, and place it all with `fill` commands. The terrain is
+flat for now.
+
+Vertical structure comes from OpenStreetMap's "Simple 3D Buildings" data where it exists: each
+`building:part` has its own `min_height`, `height` and `roof:shape`, which is how landmarks like
+the Eiffel Tower are mapped (legs, platforms, tiers, dome, antenna). Famous structures that only
+have a flat outline can instead be modelled by the AI at their real footprint and height (Arnis
+ships hand-built models for a few landmarks; ours are designed on demand).
 
 Map data © OpenStreetMap contributors, available under the Open Database Licence (ODbL).
 """
@@ -17,13 +23,13 @@ import math
 import re
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Protocol
 
 import aiohttp
 
-from .builder import _NOTHING_CHANGED, BuildError, BuildOp, PlayerPosition, add_supports, to_commands
+from .builder import _NOTHING_CHANGED, BuildError, BuildOp, PlayerPosition, add_supports, design, to_commands
 from .llm import ChatModel
 from .minecraft import MinecraftConnection, quote_target
 from .progress import Progress
@@ -44,7 +50,11 @@ DEFAULT_SIZE = 96  # blocks along each side
 MIN_SIZE, MAX_SIZE = 32, 128
 DEFAULT_SCALE = 2.0  # metres per block
 MIN_SCALE, MAX_SCALE = 0.5, 10.0
-MAX_BUILDING_BLOCKS = 40
+MAX_BUILDING_BLOCKS = 160  # tall enough for the Eiffel Tower at 2 m per block
+MAX_AI_LANDMARKS = 2  # famous structures without 3D data that the AI models per map
+MIN_LANDMARK_CELLS = 12
+LANDMARK_MIN_METRES = 20.0  # other landmarks need this height...
+LANDMARK_MIN_AREA_CELLS = 150  # ...or this footprint to get an AI model
 METRES_PER_LEVEL = 3.0
 MAX_ELEMENTS = 30_000
 
@@ -98,6 +108,8 @@ class Place:
     name: str
     lat: float
     lon: float
+    osm_type: str = ""  # the OpenStreetMap object Nominatim matched, e.g. "way"
+    osm_id: int = 0
 
 
 class MapSource(Protocol):
@@ -111,6 +123,9 @@ def overpass_query(south: float, west: float, north: float, east: float) -> str:
 (
   way["building"]({b});
   relation["building"]["type"="multipolygon"]({b});
+  way["building:part"]({b});
+  relation["building:part"]({b});
+  way["man_made"~"^(tower|lighthouse|chimney|water_tower|mast|obelisk)$"]({b});
   way["highway"]({b});
   way["railway"~"^(rail|light_rail|tram|subway|narrow_gauge)$"]({b});
   way["waterway"~"^(river|canal|stream|ditch|drain|riverbank)$"]({b});
@@ -174,7 +189,10 @@ class OpenStreetMap:
         if not results:
             return None
         top = results[0]
-        return Place(str(top.get("display_name") or query), float(top["lat"]), float(top["lon"]))
+        return Place(
+            str(top.get("display_name") or query), float(top["lat"]), float(top["lon"]),
+            str(top.get("osm_type") or ""), int(top.get("osm_id") or 0),
+        )
 
     async def features(self, south: float, west: float, north: float, east: float) -> list[dict[str, Any]]:
         """Download features (or use the cache), retrying: the public Overpass servers often answer 429/504 when busy."""
@@ -400,22 +418,54 @@ def _metres(value: str | None) -> float | None:
     return float(match.group(1)) if match else None
 
 
-def building_height(tags: dict[str, str], scale: float) -> int:
-    """Height in blocks from height / building:levels tags, or a guess from the building type."""
+def building_metres(tags: dict[str, str]) -> float:
+    """Height in metres from height / building:levels tags, or a guess from the building type."""
     metres = _metres(tags.get("height")) or _metres(tags.get("building:height"))
     if metres is None:
         levels = _metres(tags.get("building:levels"))
         if levels is not None:
-            metres = (levels + (_metres(tags.get("roof:levels")) or 0)) * METRES_PER_LEVEL
+            metres = (levels + (_metres(tags.get("roof:levels")) or 0) + (_metres(tags.get("building:min_level")) or 0)) * METRES_PER_LEVEL
     if metres is None:
-        kind = tags.get("building", "yes")
+        kind = tags.get("building", tags.get("building:part", "yes"))
         metres = 3.0 if kind in SMALL else 6.0 if kind in RESIDENTIAL else 9.0
-    return max(3, min(MAX_BUILDING_BLOCKS, round(metres / scale)))
+    return metres
+
+
+def building_height(tags: dict[str, str], scale: float) -> int:
+    """Height in blocks (to the top of the roof)."""
+    return max(3, min(MAX_BUILDING_BLOCKS, round(building_metres(tags) / scale)))
+
+
+def building_base(tags: dict[str, str], scale: float) -> int:
+    """Where a part starts above the ground, in blocks (platforms, upper tiers and spires start high)."""
+    metres = _metres(tags.get("min_height"))
+    if metres is None and (levels := _metres(tags.get("building:min_level"))) is not None:
+        metres = levels * METRES_PER_LEVEL
+    return max(0, min(MAX_BUILDING_BLOCKS - 1, round((metres or 0) / scale)))
+
+
+SHAPED_ROOFS = {"pyramidal", "hipped", "cone", "dome", "onion", "gabled", "round", "half-hipped", "gambrel", "mansard"}
+LATTICE_MATERIALS = {"steel", "metal", "iron"}
+
+
+def roof_shape(tags: dict[str, str]) -> str:
+    shape = tags.get("roof:shape", "flat").strip().lower()
+    return {"half-hipped": "hipped", "mansard": "hipped", "gambrel": "gabled", "round": "dome"}.get(shape, shape)
+
+
+def roof_metres(tags: dict[str, str]) -> float | None:
+    if (metres := _metres(tags.get("roof:height"))) is not None:
+        return metres
+    if (levels := _metres(tags.get("roof:levels"))) is not None:
+        return levels * METRES_PER_LEVEL
+    return None
 
 
 def building_materials(tags: dict[str, str]) -> tuple[str, str]:
-    """(wall block, roof block)."""
-    kind = tags.get("building", "yes")
+    """(wall block, roof block). Steel and iron structures (towers, masts) become a lattice of iron bars."""
+    kind = tags.get("building", tags.get("building:part", "yes"))
+    if tags.get("building:material", "").lower() in LATTICE_MATERIALS or tags.get("man_made") in ("mast",):
+        return "iron_bars", colour_block(tags.get("roof:colour")) or "iron_block"
     wall = (
         colour_block(tags.get("building:colour"))
         or MATERIAL_WALLS.get(tags.get("building:material", "").lower())
@@ -434,9 +484,20 @@ def building_materials(tags: dict[str, str]) -> tuple[str, str]:
 @dataclass
 class Building:
     cells: set[Cell]
-    height: int
+    height: int  # top, in blocks above the ground
     wall: str
     roof: str
+    base: int = 0  # bottom, in blocks above the ground (> 0 for platforms, tiers, spires)
+    roof_shape: str = "flat"
+    roof_height: int = 0  # blocks at the top used by a shaped roof
+    name: str = ""
+    wikidata: str = ""
+    osm: str = ""  # e.g. "way/5013364"
+    metres: float = 0.0  # real height, for AI landmark models
+    part: bool = False  # a Simple 3D Buildings part (never modelled by the AI)
+    famous: bool = False  # has a Wikidata entry and is a landmark-type structure
+    landmark: bool = False  # chosen for the AI to model (see model)
+    model: list[BuildOp] | None = None  # AI-designed model: x/z in grid cells, y above the ground
 
 
 @dataclass
@@ -464,6 +525,74 @@ class MapLayout:
                 if c not in blocked and -self.half <= c[0] <= self.half and -self.half <= c[1] <= self.half:
                     return c
         return cell
+
+
+def inset_depth(cells: set[Cell], axis: str | None = None) -> dict[Cell, int]:
+    """How far each cell is from the outline: 1 on the edge, 2 one step in, and so on.
+
+    With `axis` "x" or "z", only distance along that axis counts (for gabled roofs).
+    """
+    if axis:
+        depth: dict[Cell, int] = {}
+        lines: dict[int, list[int]] = defaultdict(list)
+        for x, z in cells:
+            if axis == "x":
+                lines[z].append(x)
+            else:
+                lines[x].append(z)
+        for fixed, values in lines.items():
+            values.sort()
+            runs, start = [], values[0]
+            for a, b in zip(values, values[1:] + [None]):
+                if b != a + 1:
+                    runs.append((start, a))
+                    start = b
+            for lo, hi in runs:
+                for v in range(lo, hi + 1):
+                    cell = (v, fixed) if axis == "x" else (fixed, v)
+                    depth[cell] = min(v - lo, hi - v) + 1
+        return depth
+    depth = {}
+    frontier = [c for c in cells if any((c[0] + dx, c[1] + dz) not in cells for dx in (-1, 0, 1) for dz in (-1, 0, 1))]
+    for c in frontier:
+        depth[c] = 1
+    level = 1
+    while frontier:
+        level += 1
+        nxt = []
+        for x, z in frontier:
+            for dx in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    c = (x + dx, z + dz)
+                    if c in cells and c not in depth:
+                        depth[c] = level
+                        nxt.append(c)
+        frontier = nxt
+    return depth
+
+
+def roof_layers(cells: set[Cell], shape: str, layers: int) -> list[set[Cell]]:
+    """Cells of each roof layer from the bottom up, shrinking towards a peak, ridge or dome top."""
+    if layers <= 0 or not cells:
+        return []
+    xs, zs = [c[0] for c in cells], [c[1] for c in cells]
+    axis = None
+    if shape == "gabled":
+        axis = "x" if max(xs) - min(xs) <= max(zs) - min(zs) else "z"  # slope across the short side
+    depth = inset_depth(cells, axis)
+    deepest = max(depth.values())
+    result = []
+    for k in range(layers):
+        t = k / layers
+        if shape in ("dome", "onion"):
+            threshold = 1 + math.floor(deepest * (1 - math.sqrt(max(0.0, 1 - t * t))))
+        else:
+            threshold = 1 + math.floor(t * deepest)
+        layer = {c for c, d in depth.items() if d >= threshold}
+        if not layer:
+            break
+        result.append(layer)
+    return result
 
 
 def _tag_key(tags: dict[str, str], table: dict | set) -> tuple[str, str] | None:
@@ -510,7 +639,13 @@ def _scatter(cells: set[Cell], every: int) -> list[Cell]:
     return picked
 
 
-def lay_out_map(elements: list[dict[str, Any]], project: Projection, size: int, bridges: bool = True) -> MapLayout:
+TOWERS = {"tower", "lighthouse", "chimney", "water_tower", "mast", "obelisk"}
+
+
+def lay_out_map(
+    elements: list[dict[str, Any]], project: Projection, size: int, bridges: bool = True, target: str = "",
+) -> MapLayout:
+    """`target` is the OSM object that was asked for ("way/123"); it's first in line for an AI model."""
     half = size // 2
     lo, hi = -half, half - 1 if size % 2 == 0 else half
     surface: dict[Cell, str] = {(x, z): "grass_block" for x in range(lo, hi + 1) for z in range(lo, hi + 1)}
@@ -519,7 +654,7 @@ def lay_out_map(elements: list[dict[str, Any]], project: Projection, size: int, 
     tree_cells: set[Cell] = set()
     counts: dict[str, int] = defaultdict(int)
 
-    areas, water_areas, waterways, railways, roads, building_elements = [], [], [], [], [], []
+    areas, water_areas, waterways, railways, roads, building_elements, part_elements = [], [], [], [], [], [], []
     for element in elements:
         tags = element.get("tags", {})
         kind = element.get("type")
@@ -531,7 +666,9 @@ def lay_out_map(elements: list[dict[str, Any]], project: Projection, size: int, 
         if not bridges and (tags.get("building") == "bridge" or tags.get("man_made") == "bridge"):
             counts["bridges skipped"] += 1
             continue
-        if "building" in tags and tags.get("building") not in ("no", "roof"):
+        if tags.get("building:part", "no") != "no":
+            part_elements.append(element)
+        elif ("building" in tags and tags.get("building") not in ("no", "roof")) or tags.get("man_made") in TOWERS:
             building_elements.append(element)
         elif _tag_key(tags, WATER_AREAS) or (kind == "way" and "water" in tags and "natural" not in tags):
             water_areas.append(element)
@@ -577,20 +714,81 @@ def lay_out_map(elements: list[dict[str, Any]], project: Projection, size: int, 
             surface[cell] = block
             water.discard(cell)  # bridges cross the water at ground level
         counts["roads"] += 1
+    def make(element: dict[str, Any], cells: set[Cell], part: bool = False) -> Building:
+        tags = element["tags"]
+        famous = bool(tags.get("wikidata")) and (
+            any(k in tags for k in LANDMARK_TAGS) or tags.get("building") in LANDMARK_BUILDINGS
+        )
+        wall, roof = building_materials(tags)
+        base, top = building_base(tags, project.scale), building_height(tags, project.scale)
+        top = max(top, base + 1)
+        shape = roof_shape(tags)
+        roof_blocks = 0
+        if shape in SHAPED_ROOFS:
+            given = roof_metres(tags)
+            deepest = max(inset_depth(cells, None).values())
+            roof_blocks = round(given / project.scale) if given else min(deepest, max(1, (top - base) // 2))
+            roof_blocks = max(0, min(roof_blocks, top - base - 1))
+        return Building(
+            cells, top, wall, roof, base, shape, roof_blocks,
+            name=tags.get("name", ""), wikidata=tags.get("wikidata", ""),
+            osm=f"{element.get('type')}/{element.get('id')}", metres=building_metres(tags),
+            part=part, famous=famous,
+        )
+
+    parts = []
+    for element in part_elements:
+        cells = _area_cells(element, project, lo, hi)
+        if cells:
+            parts.append(make(element, cells, part=True))
+    part_cells = set().union(*(p.cells for p in parts)) if parts else set()
     for element in building_elements:
         cells = _area_cells(element, project, lo, hi)
         if not cells:
             continue
-        wall, roof = building_materials(element["tags"])
-        buildings.append(Building(cells, building_height(element["tags"], project.scale), wall, roof))
+        if part_cells and len(cells & part_cells) >= 0.3 * len(cells):
+            counts["outlines replaced by 3D parts"] += 1  # Simple 3D Buildings: parts replace the outline
+            continue
+        buildings.append(make(element, cells))
         water -= cells
+    for part in parts:
+        if part.base == 0:
+            water -= part.cells
+    buildings += parts
+    counts["3D parts"] += len(parts)
     for cell in water:
         surface.pop(cell, None)
 
     blocked = water.union(*(b.cells for b in buildings)) if buildings else set(water)
     trees = [c for c in sorted(tree_cells) if c not in blocked and surface.get(c) == "grass_block" and lo + 1 <= c[0] <= hi - 1 and lo + 1 <= c[1] <= hi - 1]
-    counts.update({"buildings": len(buildings), "trees": len(trees), "water blocks": len(water)})
-    return MapLayout(half, surface, water, buildings, trees, dict(counts))
+    counts.update({"buildings": len(buildings) - len(parts), "trees": len(trees), "water blocks": len(water)})
+    layout = MapLayout(half, surface, water, buildings, trees, dict(counts))
+    choose_landmarks(layout, target)
+    return layout
+
+
+LANDMARK_TAGS = ("tourism", "historic", "heritage", "man_made", "memorial")
+LANDMARK_BUILDINGS = {"cathedral", "church", "castle", "tower", "temple", "mosque", "palace", "monument", "stadium"}
+
+
+def choose_landmarks(layout: MapLayout, target: str = "", limit: int = MAX_AI_LANDMARKS) -> list[Building]:
+    """Famous structures with only a flat outline (no 3D parts) for the AI to model: the place that was
+    asked for first, then the tallest. Structures mapped with 3D parts are already detailed."""
+    def substantial(b: Building) -> bool:
+        # Other landmarks must be big enough to be worth an AI model (not every plaque or ruin).
+        return b.metres >= LANDMARK_MIN_METRES or len(b.cells) >= LANDMARK_MIN_AREA_CELLS
+
+    candidates = [
+        b for b in layout.buildings
+        if not b.part and len(b.cells) >= MIN_LANDMARK_CELLS
+        and ((target and b.osm == target) or (b.famous and substantial(b)))
+    ]
+    candidates.sort(key=lambda b: (b.osm != target, -b.metres * len(b.cells)))
+    chosen = candidates[:limit]
+    for b in chosen:
+        b.landmark = True
+    layout.counts["AI landmarks"] = len(chosen)
+    return chosen
 
 
 def map_ops(layout: MapLayout, centre: tuple[int, int], ground: int) -> tuple[BuildOp, list[BuildOp]]:
@@ -599,7 +797,9 @@ def map_ops(layout: MapLayout, centre: tuple[int, int], ground: int) -> tuple[Bu
     xs = [c[0] for c in layout.surface] + [c[0] for c in layout.water]
     zs = [c[1] for c in layout.surface] + [c[1] for c in layout.water]
     x1, x2, z1, z2 = cx + min(xs), cx + max(xs), cz + min(zs), cz + max(zs)
-    top = max([b.height for b in layout.buildings] + [6]) + 2
+    tops = [b.height + 1 for b in layout.buildings if b.model is None]
+    tops += [max(op.y2 for op in b.model) for b in layout.buildings if b.model]
+    top = max(tops + [6]) + 2
     clear = BuildOp(x1, ground + 1, z1, x2, ground + top, z2, "air")
 
     def flat(cells: set[Cell], y1: int, y2: int, block: str, mode: str = "") -> list[BuildOp]:
@@ -614,14 +814,13 @@ def map_ops(layout: MapLayout, centre: tuple[int, int], ground: int) -> tuple[Bu
     ops += flat(layout.water, ground - 1, ground, "water")
 
     for building in layout.buildings:
-        top_y = ground + building.height
-        walls = {c for c in building.cells if any((c[0] + dx, c[1] + dz) not in building.cells for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))}
-        ops += flat(building.cells, ground, ground, "smooth_stone")
-        ops += flat(walls, ground + 1, top_y, building.wall)
-        if building.wall != "glass":
-            for y in range(ground + 2, top_y - 1, 3):
-                ops += flat(walls, y, y, "glass")
-        ops += flat(building.cells, top_y + 1, top_y + 1, building.roof)
+        if building.model is not None:
+            ops += [
+                replace(op, x1=op.x1 + cx, x2=op.x2 + cx, y1=op.y1 + ground, y2=op.y2 + ground, z1=op.z1 + cz, z2=op.z2 + cz)
+                for op in building.model
+            ]
+        else:
+            ops += building_ops(building, flat, ground)
 
     for gx, gz in layout.trees:
         x, z = cx + gx, cz + gz
@@ -631,6 +830,72 @@ def map_ops(layout: MapLayout, centre: tuple[int, int], ground: int) -> tuple[Bu
             BuildOp(x, ground + 1, z, x, ground + 4, z, "oak_log"),
         ]
     return clear, add_supports(ops)
+
+
+def building_ops(b: Building, flat: Callable[..., list[BuildOp]], ground: int) -> list[BuildOp]:
+    """A building or 3D part: from its base up, walls (with window bands), then a flat or shaped roof."""
+    ops: list[BuildOp] = []
+    top_y = ground + b.height
+    layers = roof_layers(b.cells, b.roof_shape, b.roof_height) if b.roof_height else []
+    walls = {c for c in b.cells if any((c[0] + dx, c[1] + dz) not in b.cells for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))}
+    if b.base == 0:
+        ops += flat(b.cells, ground, ground, "smooth_stone")
+        bottom = ground + 1
+    else:
+        # Starts above the ground (a platform, an upper tier, a spire): give it a solid underside.
+        slab = ground + b.base + 1
+        ops += flat(b.cells, slab, slab, b.roof if b.wall in ("iron_bars", "glass") else b.wall)
+        bottom = slab + 1
+    wall_top = top_y - len(layers) if layers else top_y
+    if wall_top >= bottom:
+        ops += flat(walls, bottom, wall_top, b.wall)
+        if b.wall not in ("glass", "iron_bars") and wall_top - bottom >= 2:
+            for y in range(bottom + 1, wall_top, 3):
+                ops += flat(walls, y, y, "glass")
+    if layers:
+        for i, layer in enumerate(layers):
+            ops += flat(layer, wall_top + 1 + i, wall_top + 1 + i, b.roof)
+    else:
+        ops += flat(b.cells, top_y + 1, top_y + 1, b.roof)
+    return ops
+
+
+async def model_landmarks(
+    llm: ChatModel, layout: MapLayout, scale: float, progress: Progress, on_status: Status = lambda status: None,
+) -> None:
+    """Have the AI design the chosen landmarks at their real footprint and height (in parallel)."""
+    chosen = [b for b in layout.buildings if b.landmark]
+    if not chosen:
+        return
+
+    async def one(b: Building) -> None:
+        xs, zs = [c[0] for c in b.cells], [c[1] for c in b.cells]
+        width, depth = max(xs) - min(xs) + 1, max(zs) - min(zs) + 1
+        height = max(3, min(MAX_BUILDING_BLOCKS, round(b.metres / scale)))
+        name = b.name or "this landmark"
+        request = (
+            f"{name}, the famous landmark, as a recognisable model. Its real footprint is {width} x {depth} blocks "
+            f"(X by Z, north is -Z) and it is about {height} blocks tall, at {scale:g} metres per block. "
+            f"Fill that footprint and match the real building's shape, proportions, materials and most "
+            f"recognisable features. Build its floor at startY."
+        )
+        try:
+            ops = await design(llm, request, width=max(width, depth), height=height, max_size=max(width, depth, height) + 8)
+        except Exception as exc:
+            on_status(f"AI model of {name} failed, using the map outline instead: {exc}")
+            b.landmark = False
+            return
+        # Centre the model on the real footprint; y=0 is the ground layer.
+        ox = (min(xs) + max(xs)) // 2 - (min(op.x1 for op in ops) + max(op.x2 for op in ops)) // 2
+        oz = (min(zs) + max(zs)) // 2 - (min(op.z1 for op in ops) + max(op.z2 for op in ops)) // 2
+        b.model = [replace(op, x1=op.x1 + ox, x2=op.x2 + ox, z1=op.z1 + oz, z2=op.z2 + oz) for op in ops]
+        on_status(f"AI modelled {name}: {len(ops)} parts")
+
+    names = ", ".join(b.name or "a landmark" for b in chosen)
+    progress.stage(f"The AI is modelling {names}")
+    await progress.say(f"The AI is modelling {names} in detail...")
+    await asyncio.gather(*(one(b) for b in chosen))
+    layout.counts["AI landmarks"] = sum(1 for b in chosen if b.model)
 
 
 # --- Building it in the world ----------------------------------------------------------
@@ -657,6 +922,11 @@ class MapScene:
     def summary(self) -> str:
         c = self.layout.counts
         parts = [f"{c.get('buildings', 0)} buildings", f"{c.get('roads', 0)} roads and paths"]
+        if c.get("3D parts"):
+            parts.append(f"{c['3D parts']} 3D building parts")
+        models = [b.name for b in self.layout.buildings if b.model and b.name]
+        if models:
+            parts.append(f"AI models of {', '.join(models)}")
         if c.get("water blocks"):
             parts.append("water")
         if c.get("trees"):
@@ -707,8 +977,14 @@ async def design_map(
     progress.stage("Turning the map into blocks")
     if len(elements) > MAX_ELEMENTS:
         raise BuildError("that area has too much map data. Try a smaller size or a bigger scale.")
-    layout = lay_out_map(elements, project, request.size, request.bridges)
+    target = f"{place.osm_type}/{place.osm_id}" if place.osm_id else ""
+    layout = lay_out_map(elements, project, request.size, request.bridges, target)
     on_status(f"laid out {len(elements)} map features: {layout.counts}")
+    if llm is not None:
+        await model_landmarks(llm, layout, project.scale, progress, on_status)
+    else:
+        for b in layout.buildings:
+            b.landmark = False
 
     try:
         info = await conn.query_player(player)

@@ -92,7 +92,7 @@ async def run_hosted(settings: Settings, mock: bool) -> None:
     runtime.events.add_listener(print_event)
     await start_web(runtime, settings.web_host, settings.web_port)
     log_line(f"Hosted mode: web on {settings.web_host}:{settings.web_port}  (LLM: {runtime.model_label or 'not configured'})")
-    log_line("Minecraft connects with /connect wss://<this app's address>/mc/<join code> (shown on the web page).")
+    log_line("Minecraft connects with /connect ws://<this app's address>/mc/<join code> (shown on the web page).")
     await asyncio.Event().wait()  # serve until stopped
 
 
