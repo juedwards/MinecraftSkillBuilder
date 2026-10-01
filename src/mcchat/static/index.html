@@ -5,218 +5,284 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Minecraft Skill Builder</title>
 <style>
+  /* Minimal editorial look: near-white paper, ink text, hairline rules, square corners,
+     uppercase letter-spaced labels. Cobalt blue (and its tints and shades) is the only highlight. */
   :root {
-    --bg: #f4f5f2;
-    --panel: #ffffff;
-    --panel-2: #f0f2ed;
-    --text: #1d211b;
-    --muted: #616a5c;
-    --border: #dde1d8;
-    --accent: #3c8527;
-    --accent-ink: #ffffff;
-    --accent-soft: #e3f0dc;
-    --ai: #1f6fb2;
-    --ai-soft: #e1edf8;
-    --build: #a5620f;
-    --build-soft: #f7ead8;
-    --danger: #b3261e;
-    --danger-soft: #f9e2e0;
-    --system: #6b5ca5;
-    --system-soft: #ebe7f6;
-    --assess: #0f7a72;
-    --assess-soft: #dcf1ee;
-    --radius: 10px;
-    --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04);
+    --bg: #fefefe;
+    --panel: #fefefe;
+    --hover: #f0f0f0;
+    --field: #f7f7f7;
+    --text: #111111;
+    --muted: #888888;
+    --border: #e6e6e6;
+    --rule: #111111;
+    --cobalt: #0047ab;
+    --cobalt-strong: #00347f;
+    --cobalt-deep: #002457;
+    --cobalt-mid: #2f6fd1;
+    --cobalt-light: #8fb1e8;
+    --cobalt-soft: #e9f0fb;
+    --on-cobalt: #ffffff;
+    --danger: #c62828;
+    --danger-soft: #fdecec;
+    --font: "Helvetica Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #141713;
-      --panel: #1c201a;
-      --panel-2: #232821;
-      --text: #e7ebe3;
-      --muted: #9aa393;
-      --border: #30362d;
-      --accent: #5fae45;
-      --accent-ink: #0e1a09;
-      --accent-soft: #23341c;
-      --ai: #6fb0ea;
-      --ai-soft: #1b2a38;
-      --build: #e0a252;
-      --build-soft: #35281a;
-      --danger: #f08a80;
-      --danger-soft: #3a1f1d;
-      --system: #b2a6e6;
-      --system-soft: #29253a;
-      --assess: #5cc9bd;
-      --assess-soft: #17302d;
-      --shadow: none;
+      --bg: #0d0e10;
+      --panel: #0d0e10;
+      --hover: #1a1c20;
+      --field: #15171a;
+      --text: #f2f2f2;
+      --muted: #8d8d8d;
+      --border: #262a30;
+      --rule: #f2f2f2;
+      --cobalt: #4f8bea;
+      --cobalt-strong: #79a8f2;
+      --cobalt-deep: #a9c6f7;
+      --cobalt-mid: #3a72cf;
+      --cobalt-light: #2b4f8c;
+      --cobalt-soft: #122340;
+      --on-cobalt: #ffffff;
+      --danger: #ff7b72;
+      --danger-soft: #3a1717;
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; height: 100%; }
   body {
+    --gutter: max(28px, calc((100% - 1120px) / 2 + 28px));  /* header, tabs and content share one column */
     background: var(--bg);
     color: var(--text);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font: 14px/1.6 var(--font);
+    -webkit-font-smoothing: antialiased;
     display: flex;
     flex-direction: column;
   }
   button, input, textarea { font: inherit; color: inherit; }
+  code { font: 12.5px var(--mono); background: var(--field); padding: 1px 4px; }
 
+  /* Header */
   header {
     background: var(--panel);
     border-bottom: 1px solid var(--border);
-    padding: 12px 20px;
+    padding: 18px var(--gutter);
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 20px;
     flex-wrap: wrap;
   }
-  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 17px; }
-  .logo {
-    width: 28px; height: 28px; border-radius: 6px;
-    background:
-      linear-gradient(var(--accent) 0 40%, #7a5230 40% 100%);
-    box-shadow: inset 0 0 0 2px rgba(0,0,0,.12);
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand-name { font-size: 18px; font-weight: 700; letter-spacing: -0.4px; line-height: 1.2; }
+  .brand-sub {
+    display: block; font-size: 10px; font-weight: 700; letter-spacing: 2.5px;
+    text-transform: uppercase; color: var(--muted); margin-top: 2px;
   }
+  .logo { width: 26px; height: 26px; display: block; }
   .status { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
   .pill {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 4px 10px; border-radius: 999px;
-    background: var(--panel-2); border: 1px solid var(--border);
-    font-size: 13px; color: var(--muted); white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 5px 10px; border: 1px solid var(--border);
+    font-size: 12px; color: var(--muted); white-space: nowrap;
   }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .dot.on { background: var(--accent); }
-  .dot.warn { background: var(--build); }
+  .dot { width: 7px; height: 7px; background: var(--muted); }
+  .dot.on { background: var(--cobalt); }
+  .dot.warn { background: transparent; box-shadow: inset 0 0 0 1.5px var(--cobalt); }
   .dot.off { background: var(--danger); }
 
+  /* Tabs */
   nav {
-    display: flex; gap: 4px; padding: 0 20px;
+    display: flex; gap: 28px; padding: 0 var(--gutter);
     background: var(--panel); border-bottom: 1px solid var(--border);
   }
   nav button {
-    background: none; border: 0; padding: 10px 12px; cursor: pointer;
-    color: var(--muted); border-bottom: 2px solid transparent; font-weight: 550;
+    background: none; border: 0; padding: 14px 0 12px; cursor: pointer;
+    color: var(--muted); border-bottom: 2px solid transparent;
+    font-size: 11px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase;
+    transition: color 80ms;
   }
-  nav button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+  nav button:hover { color: var(--text); }
+  nav button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--cobalt); }
 
-  main { flex: 1; min-height: 0; padding: 20px; max-width: 1100px; width: 100%; margin: 0 auto; }
+  main { flex: 1; min-height: 0; padding: 28px; max-width: 1120px; width: 100%; margin: 0 auto; }
   section[hidden] { display: none !important; }
 
-  .card {
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: var(--radius); box-shadow: var(--shadow);
-  }
+  .card { background: var(--panel); border: 1px solid var(--border); }
 
   /* Activity */
-  #activity { display: flex; flex-direction: column; gap: 12px; height: 100%; }
-  .toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  #activity { display: flex; flex-direction: column; gap: 16px; height: 100%; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .chip {
-    border: 1px solid var(--border); background: var(--panel); border-radius: 999px;
-    padding: 4px 12px; cursor: pointer; font-size: 13px; color: var(--muted);
+    border: 1px solid var(--border); background: var(--panel);
+    padding: 6px 12px; cursor: pointer; color: var(--muted);
+    font-size: 10.5px; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase;
+    transition: background 80ms, color 80ms, border-color 80ms;
   }
-  .chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--text); border-color: var(--accent); }
-  .toolbar .count { margin-left: auto; color: var(--muted); font-size: 13px; }
-  #feed { flex: 1; min-height: 300px; overflow-y: auto; padding: 6px 0; }
+  .chip:hover { color: var(--text); border-color: var(--rule); }
+  .chip[aria-pressed="true"] { background: var(--cobalt); color: var(--on-cobalt); border-color: var(--cobalt); }
+  .toolbar .count { margin-left: auto; color: var(--muted); font-size: 12px; }
+  #feed { flex: 1; min-height: 300px; overflow-y: auto; padding: 4px 0; }
   .event {
-    display: grid; grid-template-columns: 64px 92px 1fr; gap: 10px;
-    padding: 8px 16px; align-items: baseline;
+    display: grid; grid-template-columns: 64px 104px 1fr; gap: 12px;
+    padding: 10px 18px; align-items: baseline;
   }
   .event + .event { border-top: 1px solid var(--border); }
-  .event time { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .event time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   .tag {
-    justify-self: start; font-size: 11.5px; font-weight: 650; letter-spacing: .02em;
-    padding: 2px 8px; border-radius: 6px; text-transform: uppercase;
+    justify-self: start; font-size: 9.5px; font-weight: 700; letter-spacing: 1.6px;
+    padding: 3px 7px; text-transform: uppercase; border: 1px solid transparent; line-height: 1.4;
   }
-  .tag.player { background: var(--accent-soft); color: var(--accent); }
-  .tag.ai { background: var(--ai-soft); color: var(--ai); }
-  .tag.build { background: var(--build-soft); color: var(--build); }
-  .tag.error { background: var(--danger-soft); color: var(--danger); }
-  .tag.system { background: var(--system-soft); color: var(--system); }
-  .tag.assess { background: var(--assess-soft); color: var(--assess); }
-  .levels { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 6px; }
-  .level { font-size: 12.5px; padding: 1px 8px; border-radius: 999px; background: var(--assess-soft); }
-  .level b { font-weight: 600; }
-  .steps { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 13.5px; }
-  .report { color: var(--muted); font-size: 12.5px; margin-top: 4px; overflow-wrap: anywhere; }
+  .tag.player { color: var(--cobalt); border-color: var(--cobalt); }
+  .tag.ai { background: var(--cobalt); color: var(--on-cobalt); }
+  .tag.build { background: var(--cobalt-soft); color: var(--cobalt-strong); }
+  .tag.assess { background: var(--cobalt-deep); color: var(--bg); }
+  .tag.system { color: var(--muted); border-color: var(--border); }
+  .tag.error { color: var(--danger); border-color: var(--danger); }
+  .levels { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .level { font-size: 12px; padding: 2px 8px; border: 1px solid var(--cobalt-light); color: var(--text); }
+  .level b { font-weight: 700; color: var(--cobalt); }
+  .steps { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+  .report { color: var(--muted); font-size: 12px; margin-top: 6px; overflow-wrap: anywhere; }
   .event .body { min-width: 0; overflow-wrap: anywhere; }
-  .event .who { font-weight: 600; margin-right: 6px; }
-  .empty { color: var(--muted); text-align: center; padding: 48px 16px; }
+  .event .who { font-weight: 700; margin-right: 6px; }
+  .empty { color: var(--muted); text-align: center; padding: 56px 16px; font-size: 13px; }
 
-  /* Players */
-  #players { display: grid; grid-template-columns: 260px 1fr; gap: 16px; height: 100%; }
-  #player-list { overflow-y: auto; padding: 6px; }
+  /* Lists (players, rubrics) */
+  #players { display: grid; grid-template-columns: 260px 1fr; gap: 20px; height: 100%; }
+  #player-list { overflow-y: auto; padding: 4px 0; }
   .player {
     width: 100%; display: flex; align-items: center; gap: 10px;
-    background: none; border: 0; border-radius: 8px; padding: 9px 10px; cursor: pointer; text-align: left;
+    background: none; border: 0; border-left: 2px solid transparent;
+    padding: 10px 14px; cursor: pointer; text-align: left; transition: background 80ms;
   }
-  .player:hover { background: var(--panel-2); }
-  .player[aria-current="true"] { background: var(--accent-soft); }
-  .player .name { flex: 1; font-weight: 550; overflow: hidden; text-overflow: ellipsis; }
-  .player .meta { color: var(--muted); font-size: 12.5px; }
+  .player:hover { background: var(--hover); }
+  .player[aria-current="true"] { background: var(--cobalt-soft); border-left-color: var(--cobalt); }
+  .player .name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+  .player .meta { color: var(--muted); font-size: 12px; }
   #conversation { display: flex; flex-direction: column; min-height: 300px; }
   .conv-head {
-    display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+    display: flex; align-items: center; gap: 12px; padding: 14px 18px;
     border-bottom: 1px solid var(--border);
   }
-  .conv-head h2 { font-size: 16px; margin: 0; flex: 1; }
-  #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-  .bubble { max-width: 78%; padding: 8px 12px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .bubble.user { align-self: flex-end; background: var(--accent-soft); border-bottom-right-radius: 4px; }
-  .bubble.assistant { align-self: flex-start; background: var(--ai-soft); border-bottom-left-radius: 4px; }
+  .conv-head h2 { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; margin: 0; flex: 1; }
+  #messages { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+  .bubble { max-width: 78%; padding: 10px 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .bubble.user { align-self: flex-end; background: var(--cobalt); color: var(--on-cobalt); }
+  .bubble.assistant { align-self: flex-start; background: var(--field); border-left: 2px solid var(--cobalt-light); }
 
   /* Rubrics */
-  #rubrics { display: grid; grid-template-columns: 260px 1fr; gap: 16px; height: 100%; }
+  #rubrics { display: grid; grid-template-columns: 260px 1fr; gap: 20px; height: 100%; }
   #rubric-side { display: flex; flex-direction: column; min-height: 0; }
-  #rubric-side .side-head { padding: 10px; border-bottom: 1px solid var(--border); }
+  #rubric-side .side-head { padding: 12px; border-bottom: 1px solid var(--border); }
   #rubric-side .side-head .btn { width: 100%; }
-  #rubric-list { overflow-y: auto; padding: 6px; flex: 1; }
-  #rubric-editor { display: flex; flex-direction: column; padding: 16px; gap: 12px; min-height: 420px; }
+  #rubric-list { overflow-y: auto; padding: 4px 0; flex: 1; }
+  #rubric-editor { display: flex; flex-direction: column; padding: 20px; gap: 14px; min-height: 420px; }
   #rubric-editor .field { margin: 0; }
-  #rubric-text {
-    flex: 1; min-height: 360px;
-    font: 13.5px/1.55 ui-monospace, "Cascadia Code", Consolas, monospace;
-  }
+  #rubric-text { flex: 1; min-height: 360px; font: 13px/1.6 var(--mono); }
   #rubric-editor .row .spacer { flex: 1; }
 
-  /* Settings */
-  #settings { display: grid; gap: 16px; max-width: 760px; }
-  .card h2 { font-size: 16px; margin: 0 0 4px; }
-  .card .hint { color: var(--muted); margin: 0 0 16px; font-size: 13.5px; }
-  .card.pad { padding: 20px; }
-  .field { display: grid; gap: 6px; margin-bottom: 14px; }
-  .field label { font-weight: 550; font-size: 14px; }
-  .field small { color: var(--muted); font-size: 12.5px; }
+  /* Costs */
+  #costs { display: grid; gap: 20px; }
+  .tiles { display: grid; grid-template-columns: 1.4fr repeat(3, 1fr); border: 1px solid var(--border); }
+  .tile { padding: 18px 20px; border-left: 1px solid var(--border); min-width: 0; }
+  .tile:first-child { border-left: 0; }
+  .tile .label {
+    font-size: 10px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: var(--muted);
+  }
+  .tile .value { font-size: 26px; font-weight: 600; letter-spacing: -0.5px; margin-top: 6px; line-height: 1.15; }
+  .tile.hero .value { font-size: 48px; font-weight: 600; letter-spacing: -1.5px; }
+  .tile .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .chart-card { padding: 20px 24px; position: relative; overflow-x: auto; }
+  .chart-card svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .chart-card .axis text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .chart-card .grid line { stroke: var(--border); stroke-width: 1; }
+  .chart-card .col { fill: var(--cobalt); }
+  .chart-card .hit { fill: transparent; cursor: default; }
+  .chart-card .hit:hover + .col, .chart-card .col.active { fill: var(--cobalt-strong); }
+  .tooltip {
+    position: absolute; pointer-events: none; background: var(--text); color: var(--bg);
+    padding: 8px 10px; font-size: 12px; line-height: 1.5; white-space: nowrap; z-index: 2;
+  }
+  .tooltip b { font-weight: 700; }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.data th {
+    text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--rule);
+  }
+  table.data td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  table.data .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table.data .share { width: 30%; }
+  .bar { display: flex; align-items: center; gap: 8px; min-width: 110px; }
+  .bar .track { flex: 1; height: 6px; background: var(--hover); }
+  .bar .fill { height: 6px; background: var(--cobalt); border-radius: 0 3px 3px 0; min-width: 2px; }
+  .bar .pct { font-size: 12px; color: var(--muted); width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+  .card-head { display: flex; align-items: baseline; gap: 12px; padding: 20px 24px 0; }
+  .card-head h2 { flex: 1; }
+  details.figures { padding: 0 24px 16px; }
+  details.figures summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+  .planner { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px 16px; align-items: end; }
+  table.data td:first-child { white-space: nowrap; }
+  .planner .field { margin: 0; }
+  .estimate { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--border); margin-top: 20px; }
+  .basis { font-size: 12px; color: var(--muted); margin-top: 12px; }
+  .prices { display: grid; grid-template-columns: repeat(3, minmax(120px, 180px)) auto; gap: 12px 16px; align-items: end; }
+  .prices .field { margin: 0; }
+
+  /* Settings and forms */
+  #settings { display: grid; gap: 20px; max-width: 760px; }
+  .card h2 {
+    font-size: 11px; font-weight: 700; letter-spacing: 3px; text-transform: uppercase;
+    margin: 0 0 6px;
+  }
+  .card h2::after {
+    content: ""; display: block; width: 32px; height: 1px; background: var(--cobalt); margin-top: 10px;
+  }
+  .card .hint { color: var(--muted); margin: 10px 0 20px; font-size: 13px; }
+  .card.pad { padding: 24px; }
+  .field { display: grid; gap: 6px; margin-bottom: 16px; }
+  .field label { font-weight: 600; font-size: 13px; }
+  .field small { color: var(--muted); font-size: 12px; }
   input[type="text"], input[type="password"], input[type="number"], textarea {
-    width: 100%; padding: 8px 10px; border-radius: 8px;
-    border: 1px solid var(--border); background: var(--panel-2);
+    width: 100%; padding: 9px 11px; border: 1px solid var(--border); background: var(--field);
+    border-radius: 0; transition: border-color 80ms;
   }
-  input:focus-visible, textarea:focus-visible, button:focus-visible {
-    outline: 2px solid var(--accent); outline-offset: 1px;
-  }
+  input:hover, textarea:hover { border-color: var(--cobalt-light); }
+  input:focus-visible, textarea:focus-visible { outline: none; border-color: var(--cobalt); box-shadow: 0 0 0 1px var(--cobalt); }
+  button:focus-visible { outline: 2px solid var(--cobalt); outline-offset: 2px; }
   textarea { min-height: 130px; resize: vertical; }
   .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-  .toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; margin-bottom: 14px; }
-  .toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; margin-bottom: 16px; }
+  .toggle input { width: 16px; height: 16px; accent-color: var(--cobalt); }
   .btn {
-    border: 1px solid var(--border); background: var(--panel); border-radius: 8px;
-    padding: 8px 14px; cursor: pointer; font-weight: 550;
+    border: 1px solid var(--rule); background: transparent; color: var(--text);
+    padding: 10px 20px; cursor: pointer; font-size: 13px; border-radius: 0;
+    transition: background 80ms, color 80ms, border-color 80ms;
   }
-  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-  .btn.danger { color: var(--danger); }
-  .btn:disabled { opacity: .55; cursor: progress; }
-  .notice { padding: 10px 12px; border-radius: 8px; font-size: 14px; margin-top: 12px; }
-  .notice.ok { background: var(--accent-soft); }
-  .notice.err { background: var(--danger-soft); color: var(--danger); }
+  .btn:hover { background: var(--rule); color: var(--bg); }
+  .btn.primary { background: var(--cobalt); border-color: var(--cobalt); color: var(--on-cobalt); }
+  .btn.primary:hover { background: var(--cobalt-strong); border-color: var(--cobalt-strong); }
+  .btn.danger { color: var(--danger); border-color: var(--danger); }
+  .btn.danger:hover { background: var(--danger); color: var(--bg); }
+  .btn:disabled { opacity: .5; cursor: progress; }
+  .notice { padding: 10px 14px; font-size: 13px; margin-top: 16px; border-left: 2px solid; }
+  .notice.ok { background: var(--cobalt-soft); border-color: var(--cobalt); }
+  .notice.err { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
 
   @media (max-width: 720px) {
-    header { padding: 10px 16px; }
-    nav { padding: 0 10px; }
-    main { padding: 12px 16px; }
+    header { padding: 14px 16px; }
+    nav { padding: 0 16px; gap: 20px; overflow-x: auto; }
+    main { padding: 16px; }
     .status { margin-left: 0; width: 100%; }
-    .event { grid-template-columns: 1fr; gap: 2px; padding: 8px 12px; }
-    #players, #rubrics { grid-template-columns: 1fr; }
+    .event { grid-template-columns: 1fr; gap: 4px; padding: 10px 14px; }
+    #players, #rubrics, .split { grid-template-columns: 1fr; }
+    .tiles, .estimate { grid-template-columns: 1fr 1fr; }
+    .tile:nth-child(3) { border-left: 0; }
+    .tile:nth-child(n+3) { border-top: 1px solid var(--border); }
+    .tile.hero .value { font-size: 36px; }
+    .prices { grid-template-columns: 1fr 1fr; }
     #player-list, #rubric-list { max-height: 220px; }
     .bubble { max-width: 92%; }
   }
@@ -224,7 +290,15 @@
 </head>
 <body>
 <header>
-  <div class="brand"><div class="logo" aria-hidden="true"></div>Minecraft Skill Builder</div>
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 26 26" aria-hidden="true">
+      <rect x="0" y="0" width="12" height="12" fill="var(--cobalt)"/>
+      <rect x="14" y="0" width="12" height="12" fill="var(--cobalt-light)"/>
+      <rect x="0" y="14" width="12" height="12" fill="var(--cobalt-deep)"/>
+      <rect x="14" y="14" width="12" height="12" fill="var(--cobalt-mid)"/>
+    </svg>
+    <div><span class="brand-name">Minecraft Skill Builder</span><span class="brand-sub">For Minecraft Education</span></div>
+  </div>
   <div class="status">
     <span class="pill" id="mc-status"><span class="dot"></span><span>Minecraft</span></span>
     <span class="pill" id="ai-status"><span class="dot"></span><span>AI</span></span>
@@ -236,6 +310,7 @@
   <button role="tab" aria-selected="true" data-tab="activity">Activity</button>
   <button role="tab" aria-selected="false" data-tab="players">Players</button>
   <button role="tab" aria-selected="false" data-tab="rubrics">Rubrics</button>
+  <button role="tab" aria-selected="false" data-tab="costs">Costs</button>
   <button role="tab" aria-selected="false" data-tab="settings">Settings</button>
 </nav>
 <main>
@@ -244,7 +319,7 @@
       <button class="chip" data-filter="all" aria-pressed="true">All</button>
       <button class="chip" data-filter="chat" aria-pressed="false">Chat</button>
       <button class="chip" data-filter="build" aria-pressed="false">Builds</button>
-      <button class="chip" data-filter="assess" aria-pressed="false">Assessments</button>
+      <button class="chip" data-filter="assess" aria-pressed="false">Challenges</button>
       <button class="chip" data-filter="system" aria-pressed="false">System</button>
       <button class="chip" data-filter="error" aria-pressed="false">Errors</button>
       <span class="count" id="event-count"></span>
@@ -287,6 +362,67 @@
         <button class="btn danger" type="button" id="delete-rubric" hidden>Delete</button>
       </div>
       <div class="notice" id="rubric-notice" hidden></div>
+    </form>
+  </section>
+
+  <section id="costs" hidden>
+    <div class="toolbar" role="group" aria-label="Period">
+      <button class="chip period" data-days="1" aria-pressed="false">Today</button>
+      <button class="chip period" data-days="7" aria-pressed="true">7 days</button>
+      <button class="chip period" data-days="30" aria-pressed="false">30 days</button>
+      <button class="chip period" data-days="" aria-pressed="false">All time</button>
+      <span class="count" id="cost-model"></span>
+    </div>
+
+    <div class="tiles">
+      <div class="tile hero"><div class="label">Total cost</div><div class="value" id="t-cost">–</div><div class="sub" id="t-cost-sub"></div></div>
+      <div class="tile"><div class="label">AI requests</div><div class="value" id="t-requests">–</div><div class="sub" id="t-requests-sub"></div></div>
+      <div class="tile"><div class="label">Tokens</div><div class="value" id="t-tokens">–</div><div class="sub" id="t-tokens-sub"></div></div>
+      <div class="tile"><div class="label">Players</div><div class="value" id="t-players">–</div><div class="sub" id="t-players-sub"></div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Cost per day</h2></div>
+      <div class="chart-card" id="day-chart"></div>
+      <details class="figures"><summary>Show daily figures</summary><div id="day-table"></div></details>
+    </div>
+
+    <div class="split">
+      <div class="card"><div class="card-head"><h2>By task type</h2></div><div class="chart-card" id="task-table"></div></div>
+      <div class="card"><div class="card-head"><h2>By player</h2></div><div class="chart-card" id="player-table"></div></div>
+    </div>
+
+    <form class="card pad" id="planner">
+      <h2>Class cost planner</h2>
+      <p class="hint">Estimate what a class will cost, using the average cost of each activity so far
+        (or a typical estimate where there's no data yet).</p>
+      <div class="planner">
+        <div class="field"><label for="p-students">Students</label><input type="number" id="p-students" min="0" value="30"></div>
+        <div class="field"><label for="p-lessons">Lessons</label><input type="number" id="p-lessons" min="0" value="10"></div>
+        <div class="field"><label for="p-chats">Chats per student per lesson</label><input type="number" id="p-chats" min="0" value="10"></div>
+        <div class="field"><label for="p-builds">Builds per student per lesson</label><input type="number" id="p-builds" min="0" value="2"></div>
+        <div class="field"><label for="p-maps">Real-place maps per lesson</label><input type="number" id="p-maps" min="0" value="1"></div>
+        <div class="field"><label for="p-villages">Villages per lesson</label><input type="number" id="p-villages" min="0" value="1"></div>
+        <div class="field"><label for="p-challenges">Challenges per student per lesson</label><input type="number" id="p-challenges" min="0" value="1"></div>
+      </div>
+      <div class="estimate">
+        <div class="tile"><div class="label">Per lesson</div><div class="value" id="e-lesson">–</div></div>
+        <div class="tile"><div class="label">Per student</div><div class="value" id="e-student">–</div><div class="sub">over all lessons</div></div>
+        <div class="tile"><div class="label">Total</div><div class="value" id="e-total">–</div></div>
+      </div>
+      <div class="basis" id="e-basis"></div>
+    </form>
+
+    <form class="card pad" id="prices-form">
+      <h2>Prices</h2>
+      <p class="hint">Your model's price per million tokens. Check your Azure pricing; the defaults are GPT-5 list prices.</p>
+      <div class="prices">
+        <div class="field"><label for="price-in">Input, per 1M tokens</label><input type="number" id="price-in" min="0" step="0.01"></div>
+        <div class="field"><label for="price-out">Output, per 1M tokens</label><input type="number" id="price-out" min="0" step="0.01"></div>
+        <div class="field"><label for="price-currency">Currency symbol</label><input type="text" id="price-currency" maxlength="3"></div>
+        <div class="row"><button class="btn primary" type="submit">Save prices</button><button class="btn danger" type="button" id="clear-usage">Clear history</button></div>
+      </div>
+      <div class="notice" id="prices-notice" hidden></div>
     </form>
   </section>
 
@@ -359,10 +495,12 @@ function el(tag, props = {}, ...children) {
 let currentTab = "activity";
 function showTab(name) {
   currentTab = name;
+  if (location.hash !== `#/${name}`) history.replaceState(null, "", `#/${name}`);
   for (const btn of $$("nav button")) btn.setAttribute("aria-selected", String(btn.dataset.tab === name));
   for (const section of $$("main > section")) section.hidden = section.id !== name;
   if (name === "players") loadPlayers();
   if (name === "rubrics") loadRubrics();
+  if (name === "costs") loadCosts();
   if (name === "settings") loadSettings();
 }
 for (const btn of $$("nav button")) btn.addEventListener("click", () => showTab(btn.dataset.tab));
@@ -381,8 +519,8 @@ async function refreshStatus() {
     const assess = $("#assess-status");
     assess.hidden = !active.length;
     $("span:last-child", assess).textContent = active.length === 1
-      ? `Assessing ${active[0].player}`
-      : `${active.length} assessments running`;
+      ? `Challenge: ${active[0].player}`
+      : `${active.length} challenges running`;
   } catch {
     setPill("#mc-status", "off", "Skill Builder offline");
   }
@@ -398,7 +536,7 @@ const EVENT_KINDS = {
   question: { tag: "Player", cls: "player", group: "chat" },
   answer: { tag: "AI", cls: "ai", group: "chat" },
   build: { tag: "Build", cls: "build", group: "build" },
-  assess: { tag: "Assess", cls: "assess", group: "assess" },
+  assess: { tag: "Challenge", cls: "assess", group: "assess" },
   assessment: { tag: "Feedback", cls: "assess", group: "assess" },
   error: { tag: "Error", cls: "error", group: "error" },
   setup: { tag: "Setup", cls: "system", group: "system" },
@@ -459,6 +597,7 @@ function addEvent(e) {
 
   if (["connected", "disconnected", "build", "settings", "setup", "assess", "assessment"].includes(e.type)) refreshStatus();
   if (currentTab === "players" && ["question", "answer", "reset"].includes(e.type)) loadPlayers();
+  if (["answer", "build", "assess", "assessment", "setup"].includes(e.type)) refreshCostsSoon();
 }
 
 function matches(row) { return filter === "all" || row.dataset.group === filter; }
@@ -467,10 +606,10 @@ function updateCount() {
   const shown = rows.filter(r => !r.hidden).length;
   $("#event-count").textContent = rows.length ? `${shown} event${shown === 1 ? "" : "s"}` : "";
 }
-for (const chip of $$(".chip")) {
+for (const chip of $$("#activity .chip")) {
   chip.addEventListener("click", () => {
     filter = chip.dataset.filter;
-    for (const c of $$(".chip")) c.setAttribute("aria-pressed", String(c === chip));
+    for (const c of $$("#activity .chip")) c.setAttribute("aria-pressed", String(c === chip));
     for (const row of $$("#feed .event")) row.hidden = !matches(row);
     updateCount();
     $("#feed").scrollTop = $("#feed").scrollHeight;
@@ -615,7 +754,7 @@ $("#rubric-editor").addEventListener("submit", async e => {
     selectedRubric = rubric.id;
     await loadRubrics();
     await openRubric(rubric.id);
-    notice("#rubric-notice", true, `Saved "${rubric.title}". Players can choose it with !assess.`);
+    notice("#rubric-notice", true, `Saved "${rubric.title}". Players can choose it with !challenge.`);
   } catch (err) {
     notice("#rubric-notice", false, err.message);
   }
@@ -632,6 +771,224 @@ $("#delete-rubric").addEventListener("click", async () => {
     notice("#rubric-notice", false, err.message);
   }
 });
+
+/* ---------- Costs ---------- */
+let costDays = "7";
+let currency = "$";
+let allTimeTasks = [];
+let costPrices = { input_per_million: 1.25, output_per_million: 10 };
+
+// Typical tokens per activity, used by the planner until there's real data.
+const TYPICAL = {
+  Chat: [1500, 80],
+  Build: [7200, 2600],                // routing + design
+  Map: [1700, 60],                    // routing only; the map itself uses no AI
+  Village: [117000, 53500],           // planner + ~20 builder agents
+  "Challenge setup": [7000, 3500],
+  "Challenge feedback": [12000, 500],
+};
+
+function money(value) {
+  const v = Number(value) || 0;
+  const digits = v >= 100 ? 0 : v >= 1 ? 2 : v >= 0.01 ? 3 : v > 0 ? 4 : 2;
+  return currency + v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+function compact(n) {
+  n = Number(n) || 0;
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M";
+  if (n >= 1e4) return (n / 1e3).toFixed(n >= 1e5 ? 0 : 1) + "K";
+  return n.toLocaleString();
+}
+function dayLabel(iso) {
+  return new Date(iso + "T12:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+for (const chip of $$("#costs .period")) {
+  chip.addEventListener("click", () => {
+    costDays = chip.dataset.days;
+    for (const c of $$("#costs .period")) c.setAttribute("aria-pressed", String(c === chip));
+    loadCosts();
+  });
+}
+
+async function loadCosts() {
+  const [data, all] = await Promise.all([
+    api(`/api/usage${costDays ? `?days=${costDays}` : ""}`),
+    api("/api/usage"),
+  ]);
+  currency = data.currency;
+  costPrices = data.prices;
+  allTimeTasks = all.by_task;
+  const t = data.totals;
+  const period = { "1": "today", "7": "in the last 7 days", "30": "in the last 30 days", "": "all time" }[costDays];
+  $("#cost-model").textContent = data.model ? `Model: ${data.model}` : "";
+  $("#t-cost").textContent = money(t.cost);
+  $("#t-cost-sub").textContent = t.requests ? `${period} · ${money(t.cost / t.requests)} per request` : `nothing ${period}`;
+  $("#t-requests").textContent = compact(t.requests);
+  $("#t-requests-sub").textContent = `${data.by_task.length} task types`;
+  $("#t-tokens").textContent = compact(t.input_tokens + t.output_tokens);
+  $("#t-tokens-sub").textContent = `${compact(t.input_tokens)} in · ${compact(t.output_tokens)} out`;
+  $("#t-players").textContent = compact(t.players);
+  $("#t-players-sub").textContent = t.players ? `${money(t.cost / t.players)} per player` : "";
+  drawDays(data.by_day);
+  $("#day-table").replaceChildren(dataTable(data.by_day.slice().reverse(), {
+    name: "Date", format: row => dayLabel(row.name), share: false,
+  }));
+  $("#task-table").replaceChildren(dataTable(data.by_task, { name: "Task", total: t.cost, perUse: true }));
+  $("#player-table").replaceChildren(dataTable(data.by_player, { name: "Player", total: t.cost }));
+  $("#price-in").value = costPrices.input_per_million;
+  $("#price-out").value = costPrices.output_per_million;
+  $("#price-currency").value = currency;
+  updatePlanner();
+}
+
+function dataTable(rows, { name, total = 0, share = true, perUse = false, format = row => row.name }) {
+  if (!rows.length || !rows.some(r => r.requests)) {
+    return el("div", { className: "empty", textContent: "No AI usage in this period yet." });
+  }
+  const head = el("tr", {}, el("th", { textContent: name }), el("th", { className: "num", textContent: "Requests" }),
+    el("th", { className: "num", textContent: "Tokens" }));
+  if (perUse) head.append(el("th", { className: "num", textContent: "Per use" }));
+  head.append(el("th", { className: "num", textContent: "Cost" }));
+  if (share) head.append(el("th", { className: "share", textContent: "Share" }));
+  const body = rows.filter(r => r.requests).map(row => {
+    const tr = el("tr", {},
+      el("td", { textContent: format(row) }),
+      el("td", { className: "num", textContent: row.requests.toLocaleString() }),
+      el("td", { className: "num", textContent: compact(row.input_tokens + row.output_tokens), title: `${row.input_tokens.toLocaleString()} in, ${row.output_tokens.toLocaleString()} out` }));
+    if (perUse) tr.append(el("td", { className: "num", textContent: money(row.cost_per_operation), title: `${row.operations} uses` }));
+    tr.append(el("td", { className: "num", textContent: money(row.cost) }));
+    if (share) {
+      const pct = total ? (row.cost / total) * 100 : 0;
+      const fill = el("div", { className: "fill" });
+      fill.style.width = `${pct}%`;
+      tr.append(el("td", { className: "share" }, el("div", { className: "bar" },
+        el("div", { className: "track" }, fill), el("span", { className: "pct", textContent: `${Math.round(pct)}%` }))));
+    }
+    return tr;
+  });
+  return el("table", { className: "data" }, el("thead", {}, head), el("tbody", {}, ...body));
+}
+
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const step = 10 ** Math.floor(Math.log10(v));
+  return [1, 2, 2.5, 5, 10].map(m => m * step).find(m => m >= v);
+}
+
+function drawDays(days) {
+  const box = $("#day-chart");
+  box.replaceChildren();
+  if (!days.some(d => d.requests)) {
+    box.append(el("div", { className: "empty", textContent: "No AI usage in this period yet." }));
+    return;
+  }
+  const W = 760, H = 220, m = { t: 10, r: 8, b: 26, l: 60 };
+  const plotW = W - m.l - m.r, plotH = H - m.t - m.b;
+  const step = niceMax(Math.max(...days.map(d => d.cost)) / 4), top = step * 4;
+  let decimals = 0;
+  while (decimals < 6 && Math.abs(step * 10 ** decimals - Math.round(step * 10 ** decimals)) > 1e-9) decimals++;
+  const tick = v => currency + v.toFixed(Math.max(2, decimals));
+  const y = v => m.t + plotH - (v / top) * plotH;
+  const band = plotW / days.length;
+  const bw = Math.max(2, Math.min(24, band - 2));
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Cost per day");
+  const node = (tag, attrs, parent = svg) => {
+    const n = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    parent.append(n);
+    return n;
+  };
+  const grid = node("g", { class: "grid" }), axis = node("g", { class: "axis" });
+  for (let i = 0; i <= 4; i++) {
+    const v = step * i, yy = y(v);
+    node("line", { x1: m.l, x2: W - m.r, y1: yy, y2: yy }, grid);
+    node("text", { x: m.l - 8, y: yy + 4, "text-anchor": "end" }, axis).textContent = tick(v);
+  }
+  const every = Math.ceil(days.length / 8);
+  const tip = el("div", { className: "tooltip", hidden: true });
+  days.forEach((d, i) => {
+    const x = m.l + i * band + (band - bw) / 2, h = (d.cost / top) * plotH, base = m.t + plotH;
+    const hit = node("rect", { class: "hit", x: m.l + i * band, y: m.t, width: band, height: plotH });
+    if (h > 0) {
+      const r = Math.min(4, h, bw / 2);
+      node("path", { class: "col", d: `M${x},${base} V${base - h + r} Q${x},${base - h} ${x + r},${base - h} H${x + bw - r} Q${x + bw},${base - h} ${x + bw},${base - h + r} V${base} Z` });
+    } else {
+      svg.append(document.createElementNS(ns, "g"));  // keeps hit + col pairs aligned for :hover
+    }
+    if (i % every === 0 || i === days.length - 1) {
+      node("text", { x: m.l + i * band + band / 2, y: H - 6, "text-anchor": "middle" }, axis).textContent = dayLabel(d.name);
+    }
+    hit.addEventListener("mousemove", e => {
+      tip.hidden = false;
+      tip.replaceChildren(el("b", { textContent: dayLabel(d.name) }), el("br"),
+        `${money(d.cost)} · ${d.requests} requests`, el("br"), `${compact(d.input_tokens + d.output_tokens)} tokens`);
+      const rect = box.getBoundingClientRect();
+      const left = Math.min(e.clientX - rect.left + 12, rect.width - tip.offsetWidth - 4);
+      tip.style.left = `${left}px`;
+      tip.style.top = `${e.clientY - rect.top - tip.offsetHeight - 10}px`;
+    });
+    hit.addEventListener("mouseleave", () => { tip.hidden = true; });
+  });
+  node("line", { x1: m.l, x2: W - m.r, y1: m.t + plotH, y2: m.t + plotH, stroke: "var(--rule)", "stroke-width": 1 });
+  box.append(svg, tip);
+}
+
+function averageCost(task) {
+  const row = allTimeTasks.find(r => r.name === task);
+  if (row && row.operations && task !== "Map") return { cost: row.cost_per_operation, real: true };
+  const [tin, tout] = TYPICAL[task];
+  return { cost: (tin * costPrices.input_per_million + tout * costPrices.output_per_million) / 1e6, real: false };
+}
+
+function updatePlanner() {
+  const n = id => Math.max(0, Number($(id).value) || 0);
+  const students = n("#p-students"), lessons = n("#p-lessons");
+  const chat = averageCost("Chat"), build = averageCost("Build"), map = averageCost("Map"), village = averageCost("Village");
+  const setup = averageCost("Challenge setup"), feedback = averageCost("Challenge feedback");
+  const perLesson = students * (n("#p-chats") * chat.cost + n("#p-builds") * build.cost + n("#p-challenges") * (setup.cost + feedback.cost))
+    + n("#p-maps") * map.cost + n("#p-villages") * village.cost;
+  $("#e-lesson").textContent = money(perLesson);
+  $("#e-student").textContent = students ? money((perLesson * lessons) / students) : "–";
+  $("#e-total").textContent = money(perLesson * lessons);
+  const basis = [["chat", chat], ["build", build], ["map", map], ["village", village], ["challenge", { cost: setup.cost + feedback.cost, real: setup.real && feedback.real }]];
+  $("#e-basis").textContent = "Cost per use: " + basis.map(([name, b]) => `${name} ${money(b.cost)}${b.real ? "" : "*"}`).join(" · ")
+    + ". * typical estimate (no data yet)";
+}
+$("#planner").addEventListener("input", updatePlanner);
+$("#planner").addEventListener("submit", e => e.preventDefault());
+
+$("#prices-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  try {
+    await api("/api/settings", { method: "POST", body: JSON.stringify({
+      price_input_per_million: Number($("#price-in").value),
+      price_output_per_million: Number($("#price-out").value),
+      currency: $("#price-currency").value.trim(),
+    }) });
+    notice("#prices-notice", true, "Prices saved. All costs are recalculated with the new prices.");
+    loadCosts();
+  } catch (err) {
+    notice("#prices-notice", false, err.message);
+  }
+});
+
+$("#clear-usage").addEventListener("click", async () => {
+  if (!confirm("Clear all recorded AI usage? Costs start again from zero.")) return;
+  await api("/api/usage", { method: "DELETE" });
+  loadCosts();
+});
+
+let costRefresh = null;
+function refreshCostsSoon() {
+  if (currentTab !== "costs") return;
+  clearTimeout(costRefresh);
+  costRefresh = setTimeout(loadCosts, 1500);
+}
 
 /* ---------- Settings ---------- */
 let defaultPrompt = "";
@@ -696,6 +1053,10 @@ $("#chat-form").addEventListener("submit", e => {
 $("#default-prompt").addEventListener("click", () => { $("#system_prompt").value = defaultPrompt; });
 
 /* ---------- Start ---------- */
+{
+  const tab = location.hash.replace(/^#\/?/, "");
+  if ($(`nav button[data-tab="${tab}"]`)) showTab(tab);
+}
 refreshStatus();
 setInterval(refreshStatus, 5000);
 connectEvents();

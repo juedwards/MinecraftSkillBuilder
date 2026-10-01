@@ -57,6 +57,14 @@ def test_demo_rubric_is_complete():
         assert rubric_section(rubric.text, section), section
 
 
+def test_new_york_rubric_is_complete():
+    rubric = RubricStore(REPO_RUBRICS).get("new_york_skyscraper")
+    assert rubric is not None and rubric.title == "New York Skyline: Design an Art Deco Skyscraper"
+    for section in ("Learning aims", "Learning objectives", "Task", "Starter build", "Assessment criteria"):
+        assert rubric_section(rubric.text, section), section
+    assert "10 x 10" in rubric_section(rubric.text, "Starter build")
+
+
 def test_rubric_section():
     assert rubric_section(TEST_RUBRIC, "task") == "Build a bridge across the river."
     assert rubric_section(TEST_RUBRIC, "Missing") == ""
@@ -249,8 +257,8 @@ def test_assessment_end_to_end(tmp_path):
                 mc.ws = ws
                 serving = asyncio.create_task(mc.serve())
 
-                await mc.chat("Steve", "!assess")
-                i = await mc.wait_for("Choose an assessment")
+                await mc.chat("Steve", "!challenge")
+                i = await mc.wait_for("Choose a challenge")
                 await mc.wait_for("1. Test Bridge", i)
                 await mc.chat("Steve", "1")
                 i = await mc.wait_for("Your task: Build a bridge across the river to the far bank.", i)
@@ -270,7 +278,7 @@ def test_assessment_end_to_end(tmp_path):
                 start = i
                 i = await mc.wait_for("Would you like to try again?", i)
                 feedback = "\n".join(mc.replies[start:i + 1])
-                assert "Assessment: You reached the far bank." in feedback
+                assert "How you did: You reached the far bank." in feedback
                 assert "- Spanning the gap: Secure. A plank walkway crosses the river." in feedback
                 assert "To do better: 1) Add railings on both sides." in feedback
 
@@ -280,7 +288,7 @@ def test_assessment_end_to_end(tmp_path):
                 assert len(mc.commands) > attempt1_commands
                 assert mc.world[(10, -60, 34)] == "air", "the rebuild clears the student's blocks"
                 await mc.chat("Steve", "!cancel")
-                await mc.wait_for("Assessment stopped", i)
+                await mc.wait_for("Challenge stopped", i)
                 serving.cancel()
         finally:
             await server.close()
@@ -309,11 +317,11 @@ def test_assess_rejects_invalid_choice_and_no_rubrics(tmp_path):
             async with connect(f"ws://127.0.0.1:{server.port}") as ws:
                 mc.ws = ws
                 serving = asyncio.create_task(mc.serve())
-                await mc.chat("Steve", "!assess")
-                await mc.wait_for("There are no assessments yet")
+                await mc.chat("Steve", "!challenge")
+                await mc.wait_for("There are no challenges yet")
                 RubricStore(tmp_path / "none").save("test_bridge", TEST_RUBRIC)
-                await mc.chat("Steve", "!assess")
-                i = await mc.wait_for("Choose an assessment")
+                await mc.chat("Steve", "!assess")  # the old name still works
+                i = await mc.wait_for("Choose a challenge")
                 await mc.chat("Steve", "7")
                 await mc.wait_for("Type a number from 1 to 1", i)
                 serving.cancel()

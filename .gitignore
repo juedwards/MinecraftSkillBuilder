@@ -9,3 +9,5 @@ assessments/
 .venv-*/
 *.egg-info/
 .claude/settings.local.json
+usage.jsonl
+.mapcache/

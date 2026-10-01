@@ -146,7 +146,7 @@ def test_village_end_to_end():
 def test_help_lists_every_command():
     bridge = ChatBridge(VillageLLM(1), BridgeConfig(), rubrics=RubricStore(__import__("pathlib").Path("rubrics")))
     text = bridge.help_text()
-    for command in ("!build", "!village", "!assess", "!reset", "!setup", "!help", "finished"):
+    for command in ("!build", "!village", "!challenge", "!reset", "!setup", "!help", "finished"):
         assert command in text
 
 
@@ -157,7 +157,7 @@ def test_assessment_with_starter_village(tmp_path):
     bridge = ChatBridge(llm, BridgeConfig(), rubrics=store, reports_dir=tmp_path / "reports")
 
     async def script(mc):
-        await mc.chat("Steve", "!assess")
+        await mc.chat("Steve", "!challenge")
         await mc.wait_for("1. Village Home")
         await mc.chat("Steve", "1")
         i = await mc.wait_for("Your task: Build a home on the empty plot.", timeout=20)
@@ -168,7 +168,7 @@ def test_assessment_with_starter_village(tmp_path):
         await mc.chat("Steve", "yes")
         await mc.wait_for("Your task:", i + 1)
         await mc.chat("Steve", "!cancel")
-        await mc.wait_for("Assessment stopped")
+        await mc.wait_for("Challenge stopped")
 
     mc = run_with_minecraft(bridge, script)
     summons = [c for c in mc.commands if c.startswith("summon ")]

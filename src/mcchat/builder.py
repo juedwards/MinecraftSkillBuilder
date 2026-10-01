@@ -20,6 +20,7 @@ import quickjs
 
 from .llm import ChatModel
 from .minecraft import MinecraftConnection
+from .progress import Progress
 
 MAX_SIZE = 48  # max blocks along any axis
 MAX_OPS = 5000  # max safeFill/safeSetBlock calls
@@ -412,8 +413,11 @@ async def build_for_player(
     player: str,
     request: str,
     on_status: Callable[[str], None] = lambda status: None,
+    progress: Progress | None = None,
 ) -> BuildResult:
+    progress = progress or Progress.silent()
     on_status("designing")
+    progress.stage(f"The AI is designing {request}")
     ops = await design(llm, request)
     size = bounding_size(ops)
 
@@ -425,5 +429,6 @@ async def build_for_player(
 
     commands = to_commands(place_ops(ops, position))
     on_status(f"placing {len(commands)} commands at {position.feet}")
-    errors = [e for e in await conn.run_commands(commands) if not _NOTHING_CHANGED.search(e)]
+    progress.stage("Placing blocks", total=len(commands))
+    errors = [e for e in await conn.run_commands(commands, on_done=progress.tick) if not _NOTHING_CHANGED.search(e)]
     return BuildResult(size=size, commands=len(commands), failed=len(errors), first_error=errors[0] if errors else "")

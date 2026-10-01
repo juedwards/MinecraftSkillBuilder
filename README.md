@@ -1,9 +1,9 @@
 # Minecraft Skill Builder
 
 An AI companion for **Minecraft Education**, powered by **Azure AI Foundry**. Students chat
-with the AI in game, ask it to build things and whole villages, and take rubric-based
-building assessments with formative feedback. Teachers follow along and manage rubrics
-in a web interface.
+with the AI in game, ask it to build anything (including real places from a map) and whole
+villages, and take building challenges that give formative feedback against a teacher's
+rubric. Teachers follow along and manage rubrics in a web interface.
 
 ```
 Minecraft Education ──/connect──▶ Minecraft Skill Builder ──HTTPS──▶ Azure AI Foundry
@@ -54,10 +54,16 @@ The server also serves **Minecraft Skill Builder** at http://localhost:8080
 (`--web-port` to change it, `--no-web` to turn it off):
 
 - **Activity:** live feed of connections, player questions, AI answers, builds,
-  assessments (with each criterion's level and next steps), setup and errors, with filters.
+  challenges (with each criterion's level and next steps), setup and errors, with filters.
 - **Players:** online players and everyone who has talked to the AI. View each
   player's conversation and reset it.
-- **Rubrics:** create, edit and delete the assessment rubrics in `rubrics/`.
+- **Rubrics:** create, edit and delete the challenge rubrics in `rubrics/`.
+- **Costs:** what the AI costs, for today / 7 days / 30 days / all time: total cost, requests,
+  tokens and players; a cost-per-day chart; tables by task type (chat, build, map, village,
+  challenge setup and feedback, with the average cost per use) and by player; and a **class cost
+  planner** that estimates the cost of a course from students × lessons × activities, using your
+  real averages. Every AI call's tokens are recorded in `usage.jsonl` (not committed). Set your
+  prices per million tokens on the page (defaults are GPT-5 list prices: $1.25 in, $10 out).
 - **Settings:** change the Azure endpoint, key and model (tested before saving),
   the trigger prefix, private replies, history length and system prompt. Changes
   apply immediately and are saved to `.env`.
@@ -70,13 +76,20 @@ because the Settings page can change credentials. The API key is never sent to t
 | Command | What it does |
 |---|---|
 | (any message) | Talk to the AI (or start with the trigger prefix, if one is set). |
-| `!build <thing>` | Design and build it in front of you. |
+| `!build <anything>` | Build it. The AI decides: a real place (`!build the tower of london`) is built around you from a map; anything else (`!build a lighthouse`) is designed and built in front of you. |
 | `!village [style] [number]` | Build a village of ~20 buildings around you, with villagers, e.g. `!village viking`, `!village japanese 12`. |
-| `!assess` | Take a rubric-based building assessment; type `finished` when done. |
+| `!challenge` | Take a building challenge from a rubric; type `finished` when done to get feedback. |
 | `!reset` | Clear your conversation with the AI. |
 | `!setup` | Connect the AI to Azure from chat (only when no credentials are set). |
-| `!cancel` | Stop setup or an assessment. |
+| `!cancel` | Stop setup or a challenge. |
 | `!help` | List all commands. |
+
+Shortcuts: `!map <place> [size] [m per block]` goes straight to the map (it works without the AI and
+takes exact numbers, e.g. `!map big ben 120 3`); `!assess` is the old name for `!challenge`.
+
+During anything slow (designing, downloading maps, placing thousands of blocks, checking a
+challenge), the bot posts a short grey progress update whenever it has been quiet for 10 seconds,
+e.g. *Placing blocks: 45% (180/400)... (25s)*.
 
 ### Villages (`!village`)
 
@@ -93,9 +106,39 @@ because the Settings page can change credentials. The API key is never sent to t
 
 It takes about 2–3 minutes for 20 buildings. Add a number for more or fewer (4–24).
 
-### Assessments (`!assess`)
+### Building (`!build`)
 
-`!assess` lists the rubrics in `rubrics/` (Markdown files). The student types a number to choose, then:
+`!build` first asks the AI what kind of request it is. A named real place ("the tower of london",
+"times square", "my school, Hillside Primary in Leeds") is built from a map; anything else,
+including things "like" or "inspired by" a place ("a castle like the tower of london"), is designed.
+The AI also turns "big", "detailed" and similar words into the map's size and scale.
+
+### Real places
+
+`!build the tower of london` (or `!map tower of london`) builds the real place around you, north-up, from
+[OpenStreetMap](https://www.openstreetmap.org/) data. It's our own Python implementation of
+the approach used by [Arnis](https://github.com/louis-e/arnis), done live with commands:
+
+1. The place is found with OpenStreetMap's Nominatim geocoder (if it isn't found and the AI is
+   connected, the AI suggests a better search).
+2. Buildings, roads, paths, railways, rivers, lakes, parks, land use and trees are downloaded
+   from the Overpass API for a square around it.
+3. Everything is projected onto the block grid: areas are filled, lines are drawn at their real
+   widths, river outlines made of many pieces are joined, and buildings are raised to their real
+   height (`height` or `building:levels`) with walls, window bands and roofs. Materials come from
+   the building type and its `building:colour` / `building:material` tags.
+4. The area is cleared and built with merged `fill` commands; you're moved to open ground first.
+
+Options: a size in blocks (32–128, default 96) and metres per block (0.5–10, default 2), e.g.
+`!map big ben 120 3`. The terrain is flat. `!map` doesn't need the AI, so it works without Azure.
+The public map servers are sometimes busy; downloads are retried automatically.
+
+Map data © OpenStreetMap contributors, available under the
+[Open Database Licence](https://www.openstreetmap.org/copyright). The bot shows this credit after each map.
+
+### Challenges (`!challenge`)
+
+`!challenge` lists the rubrics in `rubrics/` (Markdown files). The student types a number to choose, then:
 
 1. The AI reads the rubric and designs a **partially completed starting scene**
    (for example two riverbanks with an unfinished bridge). It builds the scene on its
@@ -107,20 +150,27 @@ It takes about 2–3 minutes for 20 buildings. Add a number for more or fewer (4
 4. The AI gives **formative feedback** against the rubric: a level for each criterion
    with evidence, strengths, and next steps to do better. It then asks whether
    they'd like to **try again**. "yes" rebuilds the same scene for a new attempt.
-5. Each attempt is saved as a Markdown report in `assessments/`, including the
+5. Each attempt is saved as a Markdown assessment report in `assessments/`, including the
    activity log and the inspection map.
 
-`!cancel` stops an assessment. A rubric works best with these sections: `# Title`,
+`!cancel` stops a challenge. A rubric works best with these sections: `# Title`,
 `## Learning aims`, `## Learning objectives`, `## Task`, `## Starter build` (what the
 AI builds and what it leaves for the student) and `## Assessment criteria` (a table of
-levels). See [`rubrics/build_a_bridge.md`](rubrics/build_a_bridge.md).
+levels). See [`rubrics/build_a_bridge.md`](rubrics/build_a_bridge.md), or
+[`rubrics/new_york_skyscraper.md`](rubrics/new_york_skyscraper.md): design an Art Deco
+skyscraper on an empty corner lot in 1930s Manhattan (a tall 10×10×45 task area).
 
 A rubric can use a village instead: give it a `## Starter village` section describing the
-village's style. The assessment then builds a 12-building village around the student, leaving
+village's style. The challenge then builds a 12-building village around the student, leaving
 the plot in front of them empty, and that plot is the task area. See
 [`rubrics/build_a_village_home.md`](rubrics/build_a_village_home.md).
 
-### Building (`!build`)
+Or a real place: a `## Starter map` section such as
+`Clifton Suspension Bridge, Bristol, without bridges, size 96, scale 5` builds that place from
+OpenStreetMap (here leaving the bridges out), and the task area is the middle 22×22 blocks of the
+map. See [`rubrics/bridge_the_avon.md`](rubrics/bridge_the_avon.md).
+
+### Designed builds
 
 `!build a small oak cabin with a red roof` designs the structure with the LLM and builds
 it in front of you, with its entrance facing you. The world needs cheats on.
@@ -188,14 +238,17 @@ All settings live in `.env` (see `.env.example`). CLI flags override them.
 Start Skill Builder.cmd   Windows launcher (runs scripts/start-windows.ps1)
 start.sh                  WSL / macOS / Linux launcher
 rubrics/                  Assessment rubrics (Markdown), editable in the web interface
-assessments/              Saved assessment reports (created on first assessment, not committed)
+assessments/              Saved challenge reports (created on the first challenge, not committed)
 src/mcchat/
   minecraft.py  WebSocket server + Minecraft protocol (subscribe, commands, tellraw)
   llm.py        Azure AI Foundry client (OpenAI v1 API) and an echo mock
   bridge.py     Per-player conversations, triggers, !help/!reset/!setup/!build; emits events
   builder.py    !build: LLM build script -> QuickJS sandbox -> fill/setblock commands
-  assessment.py !assess: rubrics, starting scenes, activity recording, inspection, feedback
+  assessment.py !challenge: rubrics, starting scenes, activity recording, inspection, feedback
   village.py    !village: planner + builder agents, plot layout, streets, villagers
+  realworld.py  Real places: OpenStreetMap geocoding + Overpass download, projection, rasterising, buildings
+  router.py     !build: the AI decides between a real place (map) and a design
+  progress.py   Progress updates in chat during long operations
   setup_wizard.py  Step-by-step state for collecting credentials in chat
   config.py     .env / environment settings
   runtime.py    Wires server + bridge + LLM; event log; settings updates (shared by CLI and web)

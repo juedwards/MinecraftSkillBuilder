@@ -31,12 +31,13 @@ def print_event(event: Event) -> None:
     elif kind == "error":
         log_line(f"!! LLM error for {event['player']}: {event['error']}")
     elif kind in ("setup", "build", "assess"):
-        log_line(f"[{kind}] {event['player']}: {event['status']}")
+        label = "challenge" if kind == "assess" else kind
+        log_line(f"[{label}] {event['player']}: {event['status']}")
     elif kind == "assessment":
         levels = ", ".join(f"{c['name']}: {c['level']}" for c in event["criteria"])
-        log_line(f"[assessment] {event['player']} ({event['rubric']}, attempt {event['attempt']}): {levels}")
+        log_line(f"[challenge result] {event['player']} ({event['rubric']}, attempt {event['attempt']}): {levels}")
         if event["report"]:
-            log_line(f"[assessment] report saved to {event['report']}")
+            log_line(f"[challenge result] report saved to {event['report']}")
     elif kind == "connected":
         log_line(f"Minecraft connected from {event['remote']}")
     elif kind == "disconnected":
@@ -69,8 +70,8 @@ def local_ip() -> str | None:
 
 
 async def run_serve(settings: Settings, mock: bool, web: bool, open_web: bool = False) -> None:
-    llm = build_llm(settings, mock)
-    runtime = Runtime(settings, llm, mock=mock)
+    runtime = Runtime.create(settings, mock)
+    llm = runtime.bridge.llm
     runtime.events.add_listener(print_event)
     await runtime.start()
     port = runtime.server.port

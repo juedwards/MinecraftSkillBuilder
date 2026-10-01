@@ -40,6 +40,8 @@ def create_app(runtime: Runtime) -> web.Application:
     app.router.add_get("/api/players", players)
     app.router.add_get("/api/players/{name}/history", player_history)
     app.router.add_delete("/api/players/{name}/history", reset_player)
+    app.router.add_get("/api/usage", usage)
+    app.router.add_delete("/api/usage", clear_usage)
     app.router.add_get("/api/rubrics", list_rubrics)
     app.router.add_get("/api/rubrics/{id}", get_rubric)
     app.router.add_put("/api/rubrics/{id}", put_rubric)
@@ -154,4 +156,22 @@ async def delete_rubric(request: web.Request) -> web.Response:
     if not deleted:
         return web.json_response({"error": "Rubric not found."}, status=404)
     runtime.events.publish({"type": "settings", "status": f"rubric deleted: {request.match_info['id']}"})
+    return web.json_response({"ok": True})
+
+
+async def usage(request: web.Request) -> web.Response:
+    """AI usage and costs. ?days=1|7|30 limits the period (omit for all time)."""
+    try:
+        days = int(request.query["days"]) if request.query.get("days") else None
+    except ValueError:
+        return web.json_response({"error": "days must be a number."}, status=400)
+    if days is not None and not 1 <= days <= 3660:
+        return web.json_response({"error": "days must be between 1 and 3660."}, status=400)
+    return web.json_response(request.app[RUNTIME].usage_summary(days))
+
+
+async def clear_usage(request: web.Request) -> web.Response:
+    runtime = request.app[RUNTIME]
+    runtime.usage.clear()
+    runtime.events.publish({"type": "settings", "status": "AI usage history cleared"})
     return web.json_response({"ok": True})

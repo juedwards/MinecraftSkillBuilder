@@ -1,6 +1,6 @@
-"""`!assess`: rubric-based building assessments.
+"""`!challenge` (formerly `!assess`): rubric-based building challenges, assessed formatively.
 
-Flow: `!assess` -> the player picks a rubric -> the AI designs a partially completed scene
+Flow: `!challenge` -> the player picks a rubric -> the AI designs a partially completed scene
 from the rubric and builds it nearby -> the player is teleported there and given a task ->
 their block activity and chat are recorded -> they type "finished" -> the task area is
 inspected block by block -> the AI gives formative feedback against the rubric -> the
@@ -24,6 +24,9 @@ from .builder import (
     facing_from_yaw, run_design_script, to_commands,
 )
 from .minecraft import GameEvent, MinecraftConnection, quote_target
+from .progress import Progress
+from .usage import CHALLENGE_FEEDBACK, CHALLENGE_SETUP, usage_context
+from .realworld import design_map, parse_map_args
 from .village import PLOT, design_village, summon_villagers
 
 if TYPE_CHECKING:
@@ -35,6 +38,7 @@ SITE_DISTANCE = 10  # how far ahead of the player the scene is anchored
 CLEAR_HEADROOM = 4  # extra air cleared above the scene
 MAX_SCAN = 5000  # max blocks inspected when the player finishes
 ASSESSMENT_VILLAGE_BUILDINGS = 12  # smaller than !village so setup is quicker
+MAP_TASK_SIZE = 22  # task area for map scenes: the middle 22 x 22 blocks, 10 tall (within MAX_SCAN)
 FINISH_WORDS = {"finished", "finish", "done", "i'm finished", "im finished", "i am finished", "!finished", "!done", "i'm done", "im done"}
 YES_WORDS = {"yes", "y", "yeah", "yep", "sure", "ok", "okay", "yes please"}
 NO_WORDS = {"no", "n", "nope", "no thanks", "not now"}
@@ -50,10 +54,12 @@ fitting partially completed scene) and leave the part the student must build unf
 ground (y = startY + 1), near the front (low Z) of the scene.
 - Call markTaskArea(x1, y1, z1, x2, y2, z2) once: the region the student is expected to \
 build in. It is inspected to assess their work, so include all the space they might use, \
-but keep it within 20 x 12 x 20 blocks.
+but keep its volume within 5,000 blocks: for example 20 x 12 x 20 for a wide build, or \
+10 x 45 x 10 for a tall one.
 - Before the <code> tag, also output a <task> tag with the instructions for the student: \
 2-3 short plain-text sentences addressed to them, saying what to build and what good work \
-looks like. No Markdown.
+looks like. Refer to yourself as "me" (e.g. "tell me in chat"), never as an assessor or \
+teacher. No Markdown.
 """
 
 ASSESS_SYSTEM = """\
@@ -361,7 +367,7 @@ def parse_feedback(reply: str) -> Feedback:
 
 
 def feedback_chat(feedback: Feedback) -> str:
-    lines = [f"Assessment: {feedback.summary}"] if feedback.summary else []
+    lines = [f"How you did: {feedback.summary}"] if feedback.summary else []
     for c in feedback.criteria:
         lines.append(f"- {c['name']}: {c['level']}" + (f". {c['evidence']}" if c["evidence"] else ""))
     if feedback.strengths:
@@ -412,7 +418,7 @@ class AssessmentManager:
         """Handle a chat message if it belongs to the assessment flow. Returns True if consumed."""
         command = " ".join(text.lower().split()).rstrip(".!?") or text.lower()
         session = self.sessions.get(player)
-        if command == "!assess":
+        if command in ("!challenge", "!assess"):
             await self.start(conn, player)
             return True
         if session is None:
@@ -420,7 +426,7 @@ class AssessmentManager:
         if command in ("!cancel", "!stop"):
             del self.sessions[player]
             self.emit(player, "cancelled")
-            await self.say(conn, player, "Assessment stopped. Type !assess to start another.")
+            await self.say(conn, player, "Challenge stopped. Type !challenge to start another.")
             return True
         if session.state == "choosing":
             await self._choose(conn, session, text.strip())
@@ -438,7 +444,7 @@ class AssessmentManager:
             del self.sessions[player]
             self.emit(player, "finished")
             if command in NO_WORDS:
-                await self.say(conn, player, "Great work today! Type !assess any time to try another task.")
+                await self.say(conn, player, "Great work today! Type !challenge any time to try another challenge.")
                 return True
         return False
 
@@ -458,7 +464,7 @@ class AssessmentManager:
     async def start(self, conn: MinecraftConnection, player: str) -> None:
         current = self.sessions.get(player)
         if current and current.state in ("active", "preparing", "assessing"):
-            title = current.scene.rubric.title if current.scene else "an assessment"
+            title = current.scene.rubric.title if current.scene else "a challenge"
             await self.say(conn, player, f"You're already doing {title}. Type finished when you're done, or !cancel to stop.")
             return
         if self.bridge.llm is None:
@@ -466,12 +472,12 @@ class AssessmentManager:
             return
         rubrics = self.rubrics.list()
         if not rubrics:
-            await self.say(conn, player, "There are no assessments yet. Add a rubric in Minecraft Skill Builder.", error=True)
+            await self.say(conn, player, "There are no challenges yet. Ask your teacher to add one in Minecraft Skill Builder.", error=True)
             return
         self.sessions[player] = AssessmentSession(player, "choosing", options=rubrics)
         self.emit(player, "choosing a rubric")
         options = "\n".join(f"{i}. {r.title}" for i, r in enumerate(rubrics, 1))
-        await self.say(conn, player, f"Choose an assessment by typing its number:\n{options}\n(Type !cancel to stop.)")
+        await self.say(conn, player, f"Choose a challenge by typing its number:\n{options}\n(Type !cancel to stop.)")
 
     async def _choose(self, conn: MinecraftConnection, session: AssessmentSession, answer: str) -> None:
         options = session.options
@@ -492,36 +498,41 @@ class AssessmentManager:
         player = session.player
         busy = self.bridge.begin_build(player)
         if busy:
-            await self.say(conn, player, f"I'm busy building for {busy}. Type !assess to try again in a moment.")
+            await self.say(conn, player, f"I'm busy building for {busy}. Type !challenge to try again in a moment.")
             self.sessions.pop(player, None)
             return
         session.state = "preparing"
         try:
-            if not rebuild_only or session.scene is None:
-                rubric = session.options[0]
-                await self.say(conn, player, f"Setting up {rubric.title}. I'm designing your starting scene, this can take a minute...")
-                self.emit(player, f"designing scene for {rubric.title}")
-                session.scene = await self.create_scene(conn, player, rubric)
-            else:
-                await self.say(conn, player, "Rebuilding the scene for another try...")
-            scene = session.scene
-            self.emit(player, f"building scene ({len(scene.commands)} commands)")
-            # Clear the site completely before building, so nothing is placed into old blocks.
-            errors = await conn.run_commands(scene.clear_commands)
-            if scene.teleport_early:
+            async with self.bridge.progress(conn, player, private=True) as progress:
+                if not rebuild_only or session.scene is None:
+                    rubric = session.options[0]
+                    await progress.say(f"Setting up {rubric.title}. I'm designing your starting scene, this can take a minute...")
+                    self.emit(player, f"designing scene for {rubric.title}")
+                    progress.stage("The AI is designing your starting scene")
+                    with usage_context(player, CHALLENGE_SETUP):
+                        session.scene = await self.create_scene(conn, player, rubric, progress)
+                else:
+                    await progress.say("Rebuilding the scene for another try...")
+                scene = session.scene
+                self.emit(player, f"building scene ({len(scene.commands)} commands)")
+                progress.stage("Building your starting scene", total=len(scene.clear_commands) + len(scene.commands))
+                # Clear the site completely before building, so nothing is placed into old blocks.
+                errors = await conn.run_commands(scene.clear_commands, on_done=progress.tick)
+                if scene.teleport_early:
+                    await self._teleport(conn, player, scene)
+                errors += await conn.run_commands(scene.commands, on_done=progress.tick)
+                errors = [e for e in errors if not _NOTHING_CHANGED.search(e)]
+                if errors:
+                    self.emit(player, f"{len(errors)} scene commands failed: {errors[0]}")
+                if session.attempt == 0 and scene.villagers:
+                    progress.stage("Summoning villagers")
+                    await summon_villagers(conn, scene.villagers)
                 await self._teleport(conn, player, scene)
-            errors += await conn.run_commands(scene.commands)
-            errors = [e for e in errors if not _NOTHING_CHANGED.search(e)]
-            if errors:
-                self.emit(player, f"{len(errors)} scene commands failed: {errors[0]}")
-            if session.attempt == 0 and scene.villagers:
-                await summon_villagers(conn, scene.villagers)
-            await self._teleport(conn, player, scene)
         except Exception as exc:
             self.sessions.pop(player, None)
             self.emit(player, f"failed: {exc}")
             message = str(exc) if isinstance(exc, BuildError) else "something went wrong while setting up."
-            await self.say(conn, player, f"Sorry, I couldn't set up the assessment: {message}", error=True)
+            await self.say(conn, player, f"Sorry, I couldn't set up the challenge: {message}", error=True)
             return
         finally:
             self.bridge.end_build()
@@ -533,13 +544,16 @@ class AssessmentManager:
         self.emit(player, f"attempt {session.attempt} started: {scene.rubric.title}")
         await self.say(conn, player, f"Your task: {scene.task}\nType finished in chat when you're done.")
 
-    async def create_scene(self, conn: MinecraftConnection, player: str, rubric: Rubric) -> Scene:
+    async def create_scene(self, conn: MinecraftConnection, player: str, rubric: Rubric, progress: Progress | None = None) -> Scene:
         llm = self.bridge.llm
         if llm is None:
             raise BuildError("the AI isn't connected.")
+        map_spec = rubric_section(rubric.text, "Starter map")
+        if map_spec:
+            return await self._map_scene(conn, player, rubric, " ".join(map_spec.split()), progress)
         village_style = rubric_section(rubric.text, "Starter village")
         if village_style:
-            return await self._village_scene(conn, player, rubric, " ".join(village_style.split())[:300])
+            return await self._village_scene(conn, player, rubric, " ".join(village_style.split())[:300], progress)
         reply = await llm.complete([
             {"role": "system", "content": build_prompt() + STARTER_RULES},
             {"role": "user", "content": f"Create the starting scene for this assessment rubric:\n\n{rubric.text}"},
@@ -578,12 +592,38 @@ class AssessmentManager:
             expected=expected_blocks(world_ops, area),
         )
 
-    async def _village_scene(self, conn: MinecraftConnection, player: str, rubric: Rubric, style: str) -> Scene:
+    async def _map_scene(self, conn: MinecraftConnection, player: str, rubric: Rubric, spec: str, progress: Progress | None = None) -> Scene:
+        """A real place from OpenStreetMap around the player; the task area is the middle of the map."""
+        request = parse_map_args(spec)
+        scene = await design_map(
+            self.bridge.map_source, conn, player, request, llm=self.bridge.llm, progress=progress,
+            on_status=lambda status: self.emit(player, f"map: {status}"),
+        )
+        (cx, cz), ground, half = scene.centre, scene.ground, MAP_TASK_SIZE // 2
+        area = BuildOp(cx - half, ground - 2, cz - half, cx + half - 1, ground + 7, cz + half - 1, "air")
+        start = scene.world(scene.layout.nearest_open((0, half + 2)))  # just south of the task area
+        task = rubric_section(rubric.text, "Task") or "Complete the task in the middle of the map."
+        return Scene(
+            rubric=rubric,
+            task=" ".join(re.sub(r"(\*\*|__|`)", "", task).split()),
+            description=(
+                f"A real-world map of {scene.place.name} from OpenStreetMap at {request.scale:g} m per block "
+                f"({scene.summary()}){', with the bridges left out' if not request.bridges else ''}. North is -z. "
+                f"The task area is the middle {MAP_TASK_SIZE} x {MAP_TASK_SIZE} blocks of the map."
+            ),
+            clear_commands=scene.clear_commands,
+            commands=scene.commands,
+            area=area,
+            start=start,
+            expected=expected_blocks(scene.world_ops, area),
+            teleport_early=True,
+        )
+
+    async def _village_scene(self, conn: MinecraftConnection, player: str, rubric: Rubric, style: str, progress: Progress | None = None) -> Scene:
         """A village built around the player with one empty plot in front of them: the task area."""
         assert self.bridge.llm is not None
         village = await design_village(
-            self.bridge.llm, conn, player, style, ASSESSMENT_VILLAGE_BUILDINGS, reserve_plot=True,
-            say=lambda text: self.say(conn, player, text),
+            self.bridge.llm, conn, player, style, ASSESSMENT_VILLAGE_BUILDINGS, reserve_plot=True, progress=progress,
             on_status=lambda status: self.emit(player, f"village: {status}"),
         )
         plot = village.free_plot
@@ -620,29 +660,33 @@ class AssessmentManager:
         finished = time.time()
         session.state = "assessing"
         self.emit(player, "finished, inspecting build")
-        await self.say(conn, player, "Great! Let me take a look at your build. This can take a minute...")
         try:
-            positions = cells(scene.area)
-            found = dict(zip(positions, await conn.blocks_at(positions)))
-            inspection = render_inspection(scene.area, found, scene.expected, scene.start)
-            activity = describe_activity(session, finished)
-            llm = self.bridge.llm
-            if llm is None:
-                raise RuntimeError("the AI isn't connected")
-            self.emit(player, "assessing against the rubric")
-            reply = await llm.complete([
-                {"role": "system", "content": ASSESS_SYSTEM},
-                {"role": "user", "content": (
-                    f"# Rubric\n\n{scene.rubric.text}\n\n# Task given to the student\n\n{scene.task}\n\n"
-                    f"# Starting scene\n\n{scene.description or '(see the rubric)'}\n\n"
-                    f"# Activity log\n\n{activity}\n\n# Inspection of the task area after the student finished\n\n{inspection}"
-                )},
-            ])
-            feedback = parse_feedback(reply)
+            async with self.bridge.progress(conn, player, private=True) as progress:
+                await progress.say("Great! Let me take a look at your build. This can take a minute...")
+                positions = cells(scene.area)
+                progress.stage("Inspecting your build block by block", total=len(positions))
+                found = dict(zip(positions, await conn.blocks_at(positions, on_done=progress.tick)))
+                inspection = render_inspection(scene.area, found, scene.expected, scene.start)
+                activity = describe_activity(session, finished)
+                llm = self.bridge.llm
+                if llm is None:
+                    raise RuntimeError("the AI isn't connected")
+                self.emit(player, "assessing against the rubric")
+                progress.stage("The AI is checking your build against the challenge")
+                with usage_context(player, CHALLENGE_FEEDBACK):
+                    reply = await llm.complete([
+                        {"role": "system", "content": ASSESS_SYSTEM},
+                        {"role": "user", "content": (
+                            f"# Rubric\n\n{scene.rubric.text}\n\n# Task given to the student\n\n{scene.task}\n\n"
+                            f"# Starting scene\n\n{scene.description or '(see the rubric)'}\n\n"
+                            f"# Activity log\n\n{activity}\n\n# Inspection of the task area after the student finished\n\n{inspection}"
+                        )},
+                    ])
+                feedback = parse_feedback(reply)
         except Exception as exc:
             session.state = "active"
             self.emit(player, f"assessment failed: {exc}")
-            await self.say(conn, player, "Sorry, I couldn't assess your build just now. Type finished to try again.", error=True)
+            await self.say(conn, player, "Sorry, I couldn't check your build just now. Type finished to try again.", error=True)
             return
 
         report = self._save_report(session, feedback, activity, inspection, finished)

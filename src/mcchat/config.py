@@ -20,6 +20,13 @@ def _bool(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _float(value: str | None, default: float) -> float:
+    try:
+        return float(value) if value else default
+    except ValueError:
+        return default
+
+
 @dataclass
 class Settings:
     azure_endpoint: str = ""
@@ -33,6 +40,10 @@ class Settings:
     reply_private: bool = False
     max_history: int = 20
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
+    # Prices per million tokens, for the Costs page (defaults: GPT-5 list prices; set your Azure rates).
+    price_input_per_million: float = 1.25
+    price_output_per_million: float = 10.0
+    currency: str = "$"
 
     @classmethod
     def from_env(cls, path: Path = ENV_FILE) -> "Settings":
@@ -51,6 +62,9 @@ class Settings:
             reply_private=_bool(env("MC_REPLY_PRIVATE")),
             max_history=int(env("MAX_HISTORY") or 20),
             system_prompt=env("SYSTEM_PROMPT") or DEFAULT_SYSTEM_PROMPT,
+            price_input_per_million=_float(env("PRICE_INPUT_PER_M"), 1.25),
+            price_output_per_million=_float(env("PRICE_OUTPUT_PER_M"), 10.0),
+            currency=env("CURRENCY") or "$",
         )
 
     def missing_azure_settings(self) -> list[str]:

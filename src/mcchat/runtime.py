@@ -12,25 +12,26 @@ from typing import Any, Callable, Iterator
 from .assessment import RubricStore
 from .bridge import DEFAULT_SYSTEM_PROMPT, BridgeConfig, ChatBridge, Event, LLMFactory, short_error
 from .config import ENV_FILE, Settings, save_azure_credentials, save_env_values
-from .llm import AzureFoundryLLM, ChatModel, EchoLLM
+from .llm import AzureFoundryLLM, ChatModel, EchoLLM, UsageCallback
 from .minecraft import MinecraftConnection, MinecraftServer
 from .setup_wizard import AzureCredentials
+from .usage import SETUP, Prices, UsageLedger, usage_context
 
 MAX_SYSTEM_PROMPT = 4000
 MAX_TRIGGER = 20
 
 
-def azure_llm(credentials: AzureCredentials) -> ChatModel:
-    return AzureFoundryLLM(credentials.endpoint, credentials.api_key, credentials.model)
+def azure_llm(credentials: AzureCredentials, on_usage: UsageCallback | None = None) -> ChatModel:
+    return AzureFoundryLLM(credentials.endpoint, credentials.api_key, credentials.model, on_usage=on_usage)
 
 
-def build_llm(settings: Settings, mock: bool) -> ChatModel | None:
+def build_llm(settings: Settings, mock: bool, on_usage: UsageCallback | None = None) -> ChatModel | None:
     """The configured LLM, or None if credentials are missing."""
     if mock:
         return EchoLLM()
     if settings.missing_azure_settings():
         return None
-    return azure_llm(AzureCredentials(settings.azure_endpoint, settings.azure_api_key, settings.azure_model))
+    return azure_llm(AzureCredentials(settings.azure_endpoint, settings.azure_api_key, settings.azure_model), on_usage)
 
 
 class EventLog:
@@ -79,15 +80,17 @@ class Runtime:
         self,
         settings: Settings,
         llm: ChatModel | None,
-        llm_factory: LLMFactory = azure_llm,
+        llm_factory: LLMFactory | None = None,
         env_path: Path = ENV_FILE,
         mock: bool = False,
         rubrics_dir: Path = Path("rubrics"),
         reports_dir: Path = Path("assessments"),
+        usage: UsageLedger | None = None,
     ):
         self.settings = settings
         self.mock = mock
-        self._llm_factory = llm_factory
+        self.usage = usage or UsageLedger(None)
+        self._llm_factory = llm_factory or (lambda credentials: azure_llm(credentials, self.usage.record))
         self._env_path = env_path
         self.events = EventLog()
         self.rubrics = RubricStore(rubrics_dir)
@@ -101,7 +104,7 @@ class Runtime:
                 reply_private=settings.reply_private,
             ),
             on_event=self.events.publish,
-            llm_factory=llm_factory,
+            llm_factory=self._llm_factory,
             save_credentials=self._save_credentials,
             rubrics=self.rubrics,
             reports_dir=reports_dir,
@@ -202,6 +205,20 @@ class Runtime:
             if not 0 <= max_history <= 200:
                 raise SettingsError("History length must be between 0 and 200.")
             updates["max_history"], env["MAX_HISTORY"] = max_history, str(max_history)
+        for key, env_key in (("price_input_per_million", "PRICE_INPUT_PER_M"), ("price_output_per_million", "PRICE_OUTPUT_PER_M")):
+            if key in data:
+                try:
+                    price = float(data[key])
+                except (TypeError, ValueError):
+                    raise SettingsError("Prices must be numbers.") from None
+                if not 0 <= price <= 1000:
+                    raise SettingsError("Prices must be between 0 and 1000 per million tokens.")
+                updates[key], env[env_key] = price, f"{price:g}"
+        if "currency" in data:
+            currency = str(data["currency"]).strip()
+            if not 1 <= len(currency) <= 3:
+                raise SettingsError("The currency symbol must be 1 to 3 characters, e.g. $ or £.")
+            updates["currency"], env["CURRENCY"] = currency, currency
         if "system_prompt" in data:
             prompt = str(data["system_prompt"]).strip() or DEFAULT_SYSTEM_PROMPT
             if len(prompt) > MAX_SYSTEM_PROMPT:
@@ -222,7 +239,8 @@ class Runtime:
                 raise SettingsError("Enter the model deployment name.")
             try:
                 new_llm = self._llm_factory(credentials)
-                await new_llm.complete([{"role": "user", "content": "Reply with the single word OK."}])
+                with usage_context("(teacher)", SETUP):
+                    await new_llm.complete([{"role": "user", "content": "Reply with the single word OK."}])
             except Exception as exc:
                 raise SettingsError(f"Couldn't connect with these credentials: {short_error(exc, 200)}") from exc
 
@@ -240,6 +258,20 @@ class Runtime:
         if changed:
             self.events.publish({"type": "settings", "status": "updated " + ", ".join(changed)})
         return self.settings_view()
+
+    @classmethod
+    def create(cls, settings: Settings, mock: bool = False) -> Runtime:
+        """The runtime the CLI uses: usage is recorded to usage.jsonl."""
+        usage = UsageLedger()
+        return cls(settings, build_llm(settings, mock, usage.record), mock=mock, usage=usage)
+
+    def prices(self) -> Prices:
+        return Prices(self.settings.price_input_per_million, self.settings.price_output_per_million, self.settings.currency)
+
+    def usage_summary(self, days: int | None = None) -> dict[str, Any]:
+        summary = self.usage.summary(self.prices(), days)
+        summary["model"] = self.model_label
+        return summary
 
     def reset_player(self, player: str) -> None:
         self.bridge.reset(player)

@@ -21,6 +21,7 @@ from .builder import (
 )
 from .llm import ChatModel
 from .minecraft import MinecraftConnection, quote_target
+from .progress import Progress
 
 DEFAULT_BUILDINGS = 20
 MAX_BUILDINGS = 24
@@ -288,7 +289,6 @@ def lay_out(
     )
 
 
-Say = Callable[[str], Awaitable[None]]
 Status = Callable[[str], None]
 
 
@@ -299,23 +299,23 @@ async def design_village(
     style: str,
     count: int = DEFAULT_BUILDINGS,
     reserve_plot: bool = False,
-    say: Say | None = None,
+    progress: Progress | None = None,
     on_status: Status = lambda status: None,
 ) -> Village:
     """Plan, design and lay out a village around the player (nothing is placed yet)."""
-    async def tell(text: str) -> None:
-        if say:
-            await say(text)
-
+    progress = progress or Progress.silent()
     on_status(f"planning {count} buildings ({style or 'style of its choice'})")
+    progress.stage("The AI is planning the village")
     plan = await plan_village(llm, style, count)
     on_status(f"planned {plan.name}: {plan.style}, {len(plan.buildings)} buildings")
-    await tell(f"Planned {plan.name}, a {plan.style} village. Designing {len(plan.buildings)} buildings, this takes a few minutes...")
+    await progress.say(f"Planned {plan.name}, a {plan.style} village. Designing {len(plan.buildings)} buildings, this takes a few minutes...")
+    progress.stage("The AI is designing the buildings", total=len(plan.buildings))
 
     async def on_designed(done: int, total: int) -> None:
         on_status(f"designed {done}/{total} buildings")
+        progress.tick()
         if done % 5 == 0 and done < total:
-            await tell(f"Designed {done} of {total} buildings...")
+            await progress.say(f"Designed {done} of {total} buildings...")
 
     designs = await design_buildings(llm, plan, on_designed)
     if not any(ops for _, ops, _ in designs):
@@ -344,24 +344,29 @@ async def summon_villagers(conn: MinecraftConnection, positions: list[tuple[int,
 
 
 async def build_village(
-    conn: MinecraftConnection, player: str, village: Village, say: Say, on_status: Status = lambda status: None,
+    conn: MinecraftConnection, player: str, village: Village, progress: Progress | None = None,
+    on_status: Status = lambda status: None,
 ) -> tuple[int, int]:
     """Place a designed village with villagers, moving the player to the square. Returns (failed commands, villagers)."""
+    progress = progress or Progress.silent()
     on_status("clearing the area and laying out streets")
-    await say("Clearing the area and laying out the streets...")
-    errors = await conn.run_commands(village.clear_commands)
+    await progress.say("Clearing the area and laying out the streets...")
     ground_count = len(village.commands) - sum(len(c) for c in village.building_commands)
-    errors += await conn.run_commands(village.commands[:ground_count])
+    progress.stage("Clearing the area and laying out the streets", total=len(village.clear_commands) + ground_count)
+    errors = await conn.run_commands(village.clear_commands, on_done=progress.tick)
+    errors += await conn.run_commands(village.commands[:ground_count], on_done=progress.tick)
     # Move the player out of the way (the centrepiece goes where they stand) before building.
     x, y, z = village.spawn
     cx, cz = village.centre
     await conn.run_command(f"tp {quote_target(player)} {x + 0.5} {y} {z + 0.5} facing {cx + 0.5} {y + 1} {cz + 0.5}")
     total = len(village.building_commands)
+    progress.stage("Building the village", total=sum(len(c) for c in village.building_commands))
     for n, commands in enumerate(village.building_commands, 1):
-        errors += await conn.run_commands(commands)
+        errors += await conn.run_commands(commands, on_done=progress.tick)
         on_status(f"built {n}/{total} buildings")
         if n % 5 == 0 and n < total:
-            await say(f"Built {n} of {total} buildings...")
+            await progress.say(f"Built {n} of {total} buildings...")
+    progress.stage("Summoning villagers")
     villagers = await summon_villagers(conn, village.villagers)
     on_status(f"summoned {villagers} villagers")
     return len([e for e in errors if not _NOTHING_CHANGED.search(e)]), villagers

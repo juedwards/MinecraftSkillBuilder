@@ -15,7 +15,11 @@ from .assessment import AssessmentManager, RubricStore
 from .builder import BuildError, build_for_player
 from .llm import ChatModel, Message
 from .minecraft import ChatMessage, GameEvent, MinecraftConnection, quote_target
+from .progress import PROGRESS_INTERVAL, Progress
 from .setup_wizard import AzureCredentials, SetupSession
+from .realworld import ATTRIBUTION, MapRequest, MapSource, OpenStreetMap, build_map, design_map, parse_map_args
+from .router import route_build
+from .usage import BUILD, CHAT, MAP, SETUP, VILLAGE, usage_context
 from .village import build_village, design_village, parse_village_args
 
 DEFAULT_SYSTEM_PROMPT = (
@@ -36,6 +40,7 @@ class BridgeConfig:
     max_history: int = 20
     reply_private: bool = False
     bot_name: str = "AI"
+    progress_interval: float = PROGRESS_INTERVAL  # seconds of silence before a progress update
 
 
 def strip_markdown(text: str) -> str:
@@ -55,10 +60,11 @@ class ChatBridge:
         save_credentials: CredentialSaver | None = None,
         rubrics: RubricStore | None = None,
         reports_dir: Path = Path("assessments"),
+        map_source: MapSource | None = None,
     ):
         """`llm` may be None until credentials are provided via `!setup` (needs `llm_factory`).
 
-        `!assess` is available when `rubrics` is given.
+        `!challenge` is available when `rubrics` is given.
         """
         self.llm = llm
         self.config = config or BridgeConfig()
@@ -69,6 +75,7 @@ class ChatBridge:
         self._locks: dict[str, asyncio.Lock] = {}
         self._setup: SetupSession | None = None
         self._building: str | None = None  # player whose build is in progress
+        self.map_source: MapSource = map_source or OpenStreetMap()
         self.assessments = AssessmentManager(self, rubrics, reports_dir) if rubrics else None
 
     def emit(self, type_: str, **data: Any) -> None:
@@ -78,6 +85,16 @@ class ChatBridge:
     def building(self) -> str | None:
         """The player whose build is in progress, if any."""
         return self._building
+
+    def progress(self, conn: MinecraftConnection, player: str, private: bool | None = None) -> Progress:
+        """Progress updates for a long operation: normal messages via `say`, grey heartbeats in between."""
+        async def say(text: str) -> None:
+            await self.reply(conn, player, text, private=private)
+
+        async def heartbeat(text: str) -> None:
+            await self.reply(conn, player, text, private=private, muted=True)
+
+        return Progress(say, self.config.progress_interval, heartbeat=heartbeat)
 
     def begin_build(self, player: str) -> str | None:
         """Claim the (single) build slot. Returns the player already building, or None if claimed."""
@@ -121,7 +138,7 @@ class ChatBridge:
             return
         if self.assessments and await self.assessments.handle_chat(conn, msg.sender, text):
             return
-        if command == "!reset":
+        if command in ("!reset", "!clear"):
             self.reset(msg.sender)
             await self.reply(conn, msg.sender, "Conversation cleared.")
             return
@@ -134,8 +151,15 @@ class ChatBridge:
         if command == "!village" or command.startswith("!village "):
             await self._village(conn, msg.sender, text[len("!village"):].strip())
             return
+        if command == "!map" or command.startswith("!map "):
+            await self._map(conn, msg.sender, text[len("!map"):].strip())
+            return
 
         trigger = self.config.trigger
+        if command.startswith("!") and not (trigger and command.startswith(trigger.lower())):
+            # An unknown command: don't send it to the AI, which might pretend to run it.
+            await self.reply(conn, msg.sender, f"I don't know {command.split()[0]}. Type !help to see what I can do.", private=True)
+            return
         if trigger:
             if not command.startswith(trigger.lower()):
                 return
@@ -153,17 +177,19 @@ class ChatBridge:
         lines = [
             "Commands:",
             f"- Chat: {chat}. I remember our conversation.",
-            "- !build <thing>: I design and build it in front of you, e.g. !build a lighthouse",
+            "- !build <anything>: I design it and build it in front of you, e.g. !build a lighthouse. "
+            "Name a real place and I build it around you from a real map, e.g. !build the tower of london "
+            "(this clears the area around you!).",
             "- !village [style] [number]: I build a village of about 20 buildings around you, with villagers, "
             "e.g. !village viking or !village japanese 12. It clears a big area around you!",
         ]
         if self.assessments:
             lines.append(
-                "- !assess: take a building assessment. Choose a task, build it, then type finished "
+                "- !challenge: try a building challenge. Choose one, build it, then type finished "
                 "to get feedback and tips. !cancel stops it."
             )
         lines += [
-            "- !reset: forget our conversation and start fresh.",
+            "- !reset (or !clear): forget our conversation and start fresh.",
             "- !setup: connect me to Azure AI Foundry (only when I'm not set up yet).",
             "- !help: show this list.",
             "Building commands need cheats turned on in the world.",
@@ -181,16 +207,15 @@ class ChatBridge:
 
         style, count = parse_village_args(args)
 
-        async def say(text: str) -> None:
-            await self.reply(conn, player, text)
-
         def status(text: str) -> None:
             self.emit("build", player=player, status=f"village: {text}")
 
         try:
-            await say(f"Planning a {style + ' ' if style else ''}village of {count} buildings around you. This takes a few minutes...")
-            village = await design_village(self.llm, conn, player, style, count, say=say, on_status=status)
-            failed, villagers = await build_village(conn, player, village, say, on_status=status)
+            async with self.progress(conn, player) as progress:
+                await progress.say(f"Planning a {style + ' ' if style else ''}village of {count} buildings around you. This takes a few minutes...")
+                with usage_context(player, VILLAGE):
+                    village = await design_village(self.llm, conn, player, style, count, progress=progress, on_status=status)
+                failed, villagers = await build_village(conn, player, village, progress=progress, on_status=status)
         except Exception as exc:
             status(f"failed: {exc}")
             message = str(exc) if isinstance(exc, BuildError) else short_error(exc)
@@ -207,25 +232,82 @@ class ChatBridge:
         status(f"done: {len(village.built)} buildings, {villagers} villagers, {len(village.failed)} not designed, {failed} commands failed")
         await self.reply(conn, player, summary)
 
+    async def _map(self, conn: MinecraftConnection, player: str, args: str) -> None:
+        """`!map`: straight to the map pipeline (works without the AI; exact size and scale)."""
+        request = parse_map_args(args)
+        if not request.query:
+            await self.reply(conn, player, "Tell me where, e.g. !map tower bridge london (optionally add a size and metres per block: !map big ben 120 3)")
+            return
+        await self._build_place(conn, player, request)
+
+    async def _build_place(self, conn: MinecraftConnection, player: str, request: MapRequest) -> None:
+        busy = self.begin_build(player)
+        if busy:
+            await self.reply(conn, player, f"I'm busy building for {busy}. Try again in a moment.")
+            return
+
+        def status(text: str) -> None:
+            self.emit("build", player=player, status=f"map: {text}")
+
+        try:
+            async with self.progress(conn, player) as progress:
+                await progress.say(f"Looking up {request.query} on OpenStreetMap...")
+                with usage_context(player, MAP):
+                    scene = await design_map(self.map_source, conn, player, request, llm=self.llm, progress=progress, on_status=status)
+                failed = await build_map(conn, player, scene, progress=progress, on_status=status)
+        except Exception as exc:
+            status(f"failed: {exc}")
+            message = str(exc) if isinstance(exc, BuildError) else short_error(exc)
+            await self.reply(conn, player, f"Map failed: {message}", error=True)
+            return
+        finally:
+            self.end_build()
+
+        summary = f"Welcome to {scene.place.name.split(',')[0]}: {scene.summary()}."
+        if failed:
+            summary += f" {failed} parts didn't place."
+        status(f"done: {scene.summary()}, {failed} commands failed")
+        await self.reply(conn, player, f"{summary}\n{ATTRIBUTION}.")
+
     async def _build(self, conn: MinecraftConnection, player: str, request: str) -> None:
+        """`!build`: the AI decides whether this is a real place (map) or something to design."""
         if not request:
-            await self.reply(conn, player, "Tell me what to build, e.g. !build a small oak cabin with a red roof")
+            await self.reply(conn, player, "Tell me what to build, e.g. !build a lighthouse, or a real place: !build the tower of london")
             return
         if self.llm is None:
-            await self.reply(conn, player, "I'm not connected to an AI yet. Type !setup to connect me to Azure AI Foundry.", error=True)
+            await self.reply(
+                conn, player,
+                "I'm not connected to an AI yet. Type !setup to connect me to Azure AI Foundry. "
+                "You can still build real places with !map <place>.",
+                error=True,
+            )
             return
+        if self.building:
+            await self.reply(conn, player, f"I'm busy building for {self.building}. Try again in a moment.")
+            return
+        with usage_context(player, BUILD):
+            route = await route_build(self.llm, request)
+        self.emit("build", player=player, status=f"requested: {request} -> {route.kind}")
+        if route.map_request is not None:
+            await self._build_place(conn, player, route.map_request)
+        else:
+            await self._build_design(conn, player, route.request)
+
+    async def _build_design(self, conn: MinecraftConnection, player: str, request: str) -> None:
         busy = self.begin_build(player)
         if busy:
             await self.reply(conn, player, f"I'm busy building for {busy}. Try again in a moment.")
             return
 
         try:
-            self.emit("build", player=player, status=f"requested: {request}")
-            await self.reply(conn, player, f"Designing {request}... this can take a minute.")
-            result = await build_for_player(
-                self.llm, conn, player, request,
-                on_status=lambda status: self.emit("build", player=player, status=status),
-            )
+            async with self.progress(conn, player) as progress:
+                await progress.say(f"Designing {request}... this can take a minute.")
+                with usage_context(player, BUILD):
+                    result = await build_for_player(
+                        self.llm, conn, player, request,
+                        on_status=lambda status: self.emit("build", player=player, status=status),
+                        progress=progress,
+                    )
         except BuildError as exc:
             self.emit("build", player=player, status=f"failed: {exc}")
             await self.reply(conn, player, f"Build failed: {exc}", error=True)
@@ -288,7 +370,8 @@ class ChatBridge:
         assert self._llm_factory is not None
         try:
             llm = self._llm_factory(credentials)
-            await llm.complete([{"role": "user", "content": "Reply with the single word OK."}])
+            with usage_context(player, SETUP):
+                await llm.complete([{"role": "user", "content": "Reply with the single word OK."}])
         except Exception as exc:
             self._setup = None
             self.emit("setup", player=player, status=f"connection test failed: {exc}")
@@ -317,7 +400,10 @@ class ChatBridge:
             {"role": "user", "content": text},
         ]
         try:
-            answer = strip_markdown(await self.llm.complete(messages)) or "(no response)"
+            async with self.progress(conn, player) as progress:
+                progress.stage("Thinking")
+                with usage_context(player, CHAT):
+                    answer = strip_markdown(await self.llm.complete(messages)) or "(no response)"
         except Exception as exc:
             self.emit("error", player=player, error=str(exc))
             await self.reply(conn, player, "Sorry, I couldn't reach the AI right now.", error=True)
@@ -333,13 +419,18 @@ class ChatBridge:
         await self.reply(conn, player, answer)
 
     async def reply(
-        self, conn: MinecraftConnection, player: str, text: str, error: bool = False, private: bool | None = None
+        self, conn: MinecraftConnection, player: str, text: str, error: bool = False, private: bool | None = None,
+        muted: bool = False,
     ) -> None:
+        """Send chat from the bot. `muted` (progress updates) is all grey; errors are red."""
         if private is None:
             private = self.config.reply_private
         target = quote_target(player) if private else "@a"
-        colour = "§c" if error else "§b"
-        await conn.send_chat(text, target=target, prefix=f"{colour}[{self.config.bot_name}]§r ")
+        if muted:
+            prefix = f"§7[{self.config.bot_name}] "
+        else:
+            prefix = f"{'§c' if error else '§b'}[{self.config.bot_name}]§r "
+        await conn.send_chat(text, target=target, prefix=prefix)
 
 
 def short_error(error: object, limit: int = 150) -> str:

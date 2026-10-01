@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Callable, Protocol
 from urllib.parse import urlparse
 
 from openai import AsyncOpenAI
@@ -33,14 +33,21 @@ def normalize_endpoint(url: str) -> str:
     return url + "/openai/v1/"
 
 
+UsageCallback = Callable[[str, int, int], None]  # (model, input tokens, output tokens)
+
+
 class AzureFoundryLLM:
-    def __init__(self, endpoint: str, api_key: str, model: str):
+    def __init__(self, endpoint: str, api_key: str, model: str, on_usage: UsageCallback | None = None):
         self.model = model
+        self._on_usage = on_usage
         # Local servers like vLLM accept any key, but the SDK requires a non-empty one.
         self._client = AsyncOpenAI(base_url=normalize_endpoint(endpoint), api_key=api_key or "none")
 
     async def complete(self, messages: list[Message]) -> str:
         response = await self._client.chat.completions.create(model=self.model, messages=messages)
+        usage = getattr(response, "usage", None)
+        if usage is not None and self._on_usage is not None:
+            self._on_usage(self.model, usage.prompt_tokens or 0, usage.completion_tokens or 0)
         return (response.choices[0].message.content or "").strip()
 
 

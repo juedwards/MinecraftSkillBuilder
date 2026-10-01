@@ -168,8 +168,13 @@ class MinecraftConnection:
         finally:
             self._pending.pop(request_id, None)
 
-    async def run_commands(self, commands: list[str], concurrency: int = 16) -> list[str]:
-        """Run many commands, a few in flight at a time. Returns the error messages of those that failed."""
+    async def run_commands(
+        self, commands: list[str], concurrency: int = 16, on_done: Callable[[], None] | None = None,
+    ) -> list[str]:
+        """Run many commands, a few in flight at a time. Returns the error messages of those that failed.
+
+        `on_done` is called after each command, for progress reporting.
+        """
         semaphore = asyncio.Semaphore(concurrency)
         errors: list[str] = []
 
@@ -180,6 +185,9 @@ class MinecraftConnection:
                 except asyncio.TimeoutError:
                     errors.append(f"timed out: {command}")
                     return
+                finally:
+                    if on_done is not None:
+                        on_done()
                 if response.get("statusCode", 0) < 0:
                     errors.append(str(response.get("statusMessage", "command failed")))
 
@@ -207,7 +215,9 @@ class MinecraftConnection:
             return [str(p) for p in players]
         return [name.strip() for name in str(players).replace("\n", ",").split(",") if name.strip()]
 
-    async def blocks_at(self, positions: list[tuple[int, int, int]], concurrency: int = 16) -> list[str]:
+    async def blocks_at(
+        self, positions: list[tuple[int, int, int]], concurrency: int = 16, on_done: Callable[[], None] | None = None,
+    ) -> list[str]:
         """Block names at many positions (via /testforblock), in the same order."""
         semaphore = asyncio.Semaphore(concurrency)
 
@@ -217,6 +227,9 @@ class MinecraftConnection:
                     return parse_testforblock(await self.run_command(f"testforblock {x} {y} {z} air"))
                 except asyncio.TimeoutError:
                     return "unknown"
+                finally:
+                    if on_done is not None:
+                        on_done()
 
         return list(await asyncio.gather(*(probe(*pos) for pos in positions)))
 
