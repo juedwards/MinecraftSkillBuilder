@@ -32,6 +32,7 @@ import aiohttp
 from .builder import _NOTHING_CHANGED, BuildError, BuildOp, PlayerPosition, add_supports, design, to_commands
 from .llm import ChatModel
 from .minecraft import MinecraftConnection, quote_target
+from .palette import FACADE_RGB, ROOF_RGB, nearest
 from .progress import Progress
 
 USER_AGENT = "MinecraftSkillBuilder/0.2 (+https://github.com/juedwards/MinecraftSkillBuilder)"
@@ -367,19 +368,83 @@ RAILWAY_BLOCKS = {"rail": "cobblestone", "narrow_gauge": "cobblestone", "light_r
 
 RESIDENTIAL = {"house", "residential", "detached", "semidetached_house", "terrace", "bungalow", "apartments", "cabin", "farm", "dormitory"}
 SMALL = {"garage", "garages", "shed", "hut", "carport", "kiosk", "toilets"}
+CHURCHES = {"church", "cathedral", "chapel", "monastery", "basilica", "abbey"}
+CIVIC = {"civic", "public", "government", "townhall", "museum", "library", "courthouse", "theatre", "bank"}
 BUILDING_WALLS = {
-    **{t: "brick_block" for t in RESIDENTIAL | {"school", "university", "college", "kindergarten"}},
+    **{t: "brick_block" for t in RESIDENTIAL | {"school", "university", "college", "kindergarten", "train_station"}},
     **{t: "oak_planks" for t in SMALL},
-    **{t: "white_concrete" for t in ("commercial", "retail", "office", "hospital", "hotel", "supermarket")},
-    **{t: "light_gray_concrete" for t in ("industrial", "warehouse", "train_station", "transportation", "parking")},
-    **{t: "polished_andesite" for t in ("church", "cathedral", "chapel", "civic", "public", "government", "museum")},
-    "castle": "stone", "tower": "stone", "bridge": "stone", "barn": "spruce_planks", "greenhouse": "glass",
+    **{t: "stone_bricks" for t in CHURCHES | {"castle", "fort", "tower", "bridge", "transportation"}},
+    **{t: "calcite" for t in CIVIC | {"temple", "mosque", "synagogue", "hospital"}},
+    **{t: "smooth_quartz" for t in ("palace", "monument")},
+    **{t: "white_terracotta" for t in ("retail", "hotel", "supermarket", "kiosk")},
+    **{t: "light_gray_concrete" for t in ("commercial", "office", "industrial", "warehouse", "parking", "stadium", "hangar")},
+    "barn": "spruce_planks", "greenhouse": "glass", "farm_auxiliary": "spruce_planks", "stable": "spruce_planks",
 }
+# For buildings with no type, colour or material: a realistic mix of facades instead of all one grey.
+MIXED_FACADES = ("brick_block", "stone_bricks", "white_terracotta", "smooth_sandstone", "light_gray_terracotta", "calcite", "brick_block")
 MATERIAL_WALLS = {
-    "brick": "brick_block", "stone": "stone", "sandstone": "sandstone", "limestone": "smooth_stone",
-    "wood": "oak_planks", "timber_framing": "oak_planks", "glass": "glass", "concrete": "light_gray_concrete",
-    "metal": "iron_block", "steel": "iron_block", "plaster": "white_concrete", "marble": "quartz_block", "granite": "polished_granite",
+    "brick": "brick_block", "stone": "stone_bricks", "sandstone": "cut_sandstone", "limestone": "calcite",
+    "wood": "spruce_planks", "timber_framing": "white_terracotta", "glass": "glass", "mirror": "tinted_glass",
+    "concrete": "light_gray_concrete", "reinforced_concrete": "light_gray_concrete", "cement_block": "smooth_stone",
+    "metal": "iron_block", "plaster": "white_terracotta", "marble": "smooth_quartz", "granite": "polished_granite",
+    "mud": "mud_bricks", "adobe": "mud_bricks", "cob": "mud_bricks", "clay": "terracotta", "tiles": "white_terracotta",
+    "copper": "cut_copper", "bamboo": "bamboo_planks", "slate": "deepslate_tiles", "basalt": "smooth_basalt",
+    "flint": "cobblestone", "rammed_earth": "packed_mud",
 }
+PAINTED = {"plaster", "concrete", "reinforced_concrete", "cement_block", "render", "wood", "timber_framing", ""}
+ROOF_MATERIALS = {
+    "roof_tiles": "red_terracotta", "tile": "red_terracotta", "tiles": "red_terracotta", "clay_tiles": "red_terracotta",
+    "slate": "deepslate_tiles", "metal": "light_gray_concrete", "metal_sheet": "light_gray_concrete",
+    "copper": "oxidized_copper", "glass": "glass", "thatch": "hay_block", "concrete": "smooth_stone",
+    "asphalt": "gray_concrete", "tar_paper": "gray_concrete", "wood": "spruce_planks", "shingle": "spruce_planks",
+    "stone": "stone_bricks", "grass": "moss_block", "plants": "moss_block", "zinc": "light_gray_concrete",
+    "lead": "gray_concrete", "gravel": "smooth_stone", "gold": "gold_block",
+}
+# Roof colour words usually describe a material: red roofs are clay tiles, grey ones slate, green ones copper.
+ROOF_COLOUR_WORDS = {
+    "red": "red_terracotta", "darkred": "red_terracotta", "brown": "brown_terracotta", "orange": "orange_terracotta",
+    "grey": "deepslate_tiles", "gray": "deepslate_tiles", "darkgrey": "deepslate_tiles", "darkgray": "deepslate_tiles",
+    "black": "deepslate_tiles", "green": "oxidized_copper", "lightgreen": "oxidized_copper",
+    "lightgrey": "light_gray_concrete", "lightgray": "light_gray_concrete", "silver": "light_gray_concrete",
+    "white": "white_concrete", "gold": "gold_block",
+}
+TRIM = {  # a cornice band at the top of flat-roofed masonry buildings
+    "brick_block": "stone_bricks", "stone_bricks": "chiseled_stone_bricks", "calcite": "smooth_quartz",
+    "smooth_quartz": "quartz_pillar", "smooth_sandstone": "cut_sandstone", "cut_sandstone": "chiseled_sandstone",
+    "white_terracotta": "smooth_stone", "light_gray_terracotta": "stone_bricks", "mud_bricks": "packed_mud",
+}
+# Colours people tag buildings with (OSM uses CSS names or #rrggbb).
+NAMED_COLOURS = {
+    "white": (255, 255, 255), "ivory": (255, 255, 240), "cream": (255, 253, 208), "beige": (245, 245, 220),
+    "linen": (250, 240, 230), "wheat": (245, 222, 179), "tan": (210, 180, 140), "khaki": (240, 230, 140),
+    "burlywood": (222, 184, 135), "sandybrown": (244, 164, 96), "peru": (205, 133, 63), "sienna": (160, 82, 45),
+    "chocolate": (210, 105, 30), "brown": (165, 42, 42), "saddlebrown": (139, 69, 19), "maroon": (128, 0, 0),
+    "darkred": (139, 0, 0), "firebrick": (178, 34, 34), "red": (255, 0, 0), "indianred": (205, 92, 92),
+    "salmon": (250, 128, 114), "coral": (255, 127, 80), "orange": (255, 165, 0), "gold": (255, 215, 0),
+    "yellow": (255, 255, 0), "olive": (128, 128, 0), "green": (0, 128, 0), "darkgreen": (0, 100, 0),
+    "teal": (0, 128, 128), "lightblue": (173, 216, 230), "blue": (0, 0, 255), "navy": (0, 0, 128),
+    "pink": (255, 192, 203), "purple": (128, 0, 128), "silver": (192, 192, 192), "lightgrey": (211, 211, 211),
+    "lightgray": (211, 211, 211), "grey": (128, 128, 128), "gray": (128, 128, 128), "darkgrey": (169, 169, 169),
+    "darkgray": (169, 169, 169), "dimgray": (105, 105, 105), "dimgrey": (105, 105, 105), "black": (0, 0, 0),
+}
+
+
+def parse_colour(value: str | None) -> tuple[int, int, int] | None:
+    """'#aa3322', '#a32', 'red' or 'light grey' -> (r, g, b)."""
+    if not value:
+        return None
+    value = value.strip().lower().replace(" ", "").replace("_", "")
+    if value in NAMED_COLOURS:
+        return NAMED_COLOURS[value]
+    match = re.fullmatch(r"#?([0-9a-f]{6}|[0-9a-f]{3})", value)
+    if not match:
+        return None
+    hex_ = match.group(1)
+    if len(hex_) == 3:
+        hex_ = "".join(c * 2 for c in hex_)
+    return tuple(int(hex_[i:i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+
+
 CONCRETE_RGB = {
     "white": (207, 213, 214), "orange": (224, 97, 0), "magenta": (169, 48, 159), "light_blue": (35, 137, 198),
     "yellow": (241, 175, 21), "lime": (94, 168, 24), "pink": (213, 101, 142), "gray": (54, 57, 61),
@@ -444,6 +509,7 @@ def building_base(tags: dict[str, str], scale: float) -> int:
     return max(0, min(MAX_BUILDING_BLOCKS - 1, round((metres or 0) / scale)))
 
 
+INHERITED_TAGS = ("building:material", "building:colour", "roof:material", "roof:colour", "tower:construction")
 SHAPED_ROOFS = {"pyramidal", "hipped", "cone", "dome", "onion", "gabled", "round", "half-hipped", "gambrel", "mansard"}
 LATTICE_MATERIALS = {"steel", "metal", "iron"}
 
@@ -461,21 +527,64 @@ def roof_metres(tags: dict[str, str]) -> float | None:
     return None
 
 
-def building_materials(tags: dict[str, str]) -> tuple[str, str]:
-    """(wall block, roof block). Steel and iron structures (towers, masts) become a lattice of iron bars."""
+def building_materials(tags: dict[str, str], seed: int = 0) -> tuple[str, str]:
+    """(wall block, roof block) from the material, colour and type tags.
+
+    A colour on a painted material (plaster, concrete, render) picks the nearest facade block; a real
+    material (brick, stone, sandstone, marble...) keeps its texture. Steel structures (towers, masts)
+    become a lattice of iron bars. Untagged buildings get a varied mix of facades (by `seed`).
+    """
     kind = tags.get("building", tags.get("building:part", "yes"))
-    if tags.get("building:material", "").lower() in LATTICE_MATERIALS or tags.get("man_made") in ("mast",):
-        return "iron_bars", colour_block(tags.get("roof:colour")) or "iron_block"
-    wall = (
-        colour_block(tags.get("building:colour"))
-        or MATERIAL_WALLS.get(tags.get("building:material", "").lower())
-        or BUILDING_WALLS.get(kind, "polished_andesite")
-    )
-    roof = (
-        colour_block(tags.get("roof:colour"))
-        or ("dark_oak_planks" if kind in RESIDENTIAL else "spruce_planks" if kind in SMALL else "smooth_stone")
-    )
+    material = tags.get("building:material", "").strip().lower()
+    roof_tag_colour = parse_colour(tags.get("roof:colour"))
+    roof_material = ROOF_MATERIALS.get(tags.get("roof:material", "").strip().lower())
+    lattice_tower = tags.get("tower:construction") == "lattice" and (not material or material in LATTICE_MATERIALS)
+    if material in LATTICE_MATERIALS or tags.get("man_made") == "mast" or lattice_tower:
+        return "iron_bars", nearest(roof_tag_colour, ROOF_RGB) if roof_tag_colour else "iron_block"
+
+    colour = parse_colour(tags.get("building:colour"))
+    if colour and material in PAINTED:
+        wall = nearest(colour, FACADE_RGB)
+    elif material in MATERIAL_WALLS:
+        wall = MATERIAL_WALLS[material]
+    elif colour:
+        wall = nearest(colour, FACADE_RGB)
+    elif kind in BUILDING_WALLS:
+        wall = BUILDING_WALLS[kind]
+    else:
+        wall = MIXED_FACADES[seed % len(MIXED_FACADES)]
+
+    shaped = roof_shape(tags) in SHAPED_ROOFS
+    roof_word = tags.get("roof:colour", "").strip().lower().replace(" ", "").replace("_", "")
+    if roof_word in ROOF_COLOUR_WORDS:
+        roof = ROOF_COLOUR_WORDS[roof_word]
+    elif roof_tag_colour:
+        roof = nearest(roof_tag_colour, ROOF_RGB)
+    elif roof_material:
+        roof = roof_material
+    elif roof_shape(tags) in ("dome", "onion") and kind in CHURCHES | CIVIC | {"palace", "mosque", "temple", "yes"}:
+        roof = "oxidized_copper"  # most famous domes are weathered copper or lead
+    elif kind in SMALL:
+        roof = "spruce_planks"
+    elif kind in RESIDENTIAL or (shaped and kind == "yes"):
+        roof = ("deepslate_tiles", "red_terracotta", "dark_oak_planks")[seed % 3]
+    elif kind in CHURCHES:
+        roof = "deepslate_tiles"
+    else:
+        roof = "smooth_stone" if not shaped else "deepslate_tiles"
     return wall, roof
+
+
+def window_style(building_type: str, wall: str, height: int) -> str:
+    """'none' (glass or lattice walls), 'curtain' (offices and towers: mostly glass), 'shop' (glass at street
+    level, punched windows above) or 'punched' (separate windows in masonry)."""
+    if wall in ("glass", "tinted_glass", "iron_bars"):
+        return "none"
+    if building_type in ("office", "commercial") or height >= 20:
+        return "curtain"
+    if building_type in ("retail", "supermarket", "hotel"):
+        return "shop"
+    return "punched"
 
 
 # --- Layout ----------------------------------------------------------------------------
@@ -497,6 +606,8 @@ class Building:
     part: bool = False  # a Simple 3D Buildings part (never modelled by the AI)
     famous: bool = False  # has a Wikidata entry and is a landmark-type structure
     landmark: bool = False  # chosen for the AI to model (see model)
+    windows: str = "punched"  # see window_style
+    trim: str = ""  # cornice block for flat-roofed masonry
     model: list[BuildOp] | None = None  # AI-designed model: x/z in grid cells, y above the ground
 
 
@@ -719,7 +830,8 @@ def lay_out_map(
         famous = bool(tags.get("wikidata")) and (
             any(k in tags for k in LANDMARK_TAGS) or tags.get("building") in LANDMARK_BUILDINGS
         )
-        wall, roof = building_materials(tags)
+        seed = int(element.get("id") or 0)
+        wall, roof = building_materials(tags, seed)
         base, top = building_base(tags, project.scale), building_height(tags, project.scale)
         top = max(top, base + 1)
         shape = roof_shape(tags)
@@ -734,23 +846,32 @@ def lay_out_map(
             name=tags.get("name", ""), wikidata=tags.get("wikidata", ""),
             osm=f"{element.get('type')}/{element.get('id')}", metres=building_metres(tags),
             part=part, famous=famous,
+            windows=window_style(tags.get("building", tags.get("building:part", "yes")), wall, top - base),
+            trim=TRIM.get(wall, ""),
         )
 
-    parts = []
-    for element in part_elements:
-        cells = _area_cells(element, project, lo, hi)
-        if cells:
-            parts.append(make(element, cells, part=True))
-    part_cells = set().union(*(p.cells for p in parts)) if parts else set()
+    raw_parts = [(element, cells) for element in part_elements if (cells := _area_cells(element, project, lo, hi))]
+    part_cells = set().union(*(cells for _, cells in raw_parts)) if raw_parts else set()
+    replaced: list[tuple[set[Cell], dict[str, str]]] = []  # outlines whose 3D parts replace them
     for element in building_elements:
         cells = _area_cells(element, project, lo, hi)
         if not cells:
             continue
         if part_cells and len(cells & part_cells) >= 0.3 * len(cells):
             counts["outlines replaced by 3D parts"] += 1  # Simple 3D Buildings: parts replace the outline
+            replaced.append((cells, element.get("tags", {})))
             continue
         buildings.append(make(element, cells))
         water -= cells
+    parts = []
+    for element, cells in raw_parts:
+        # Parts inherit their building's material and colours unless they set their own
+        # (the Eiffel Tower's parts mostly carry only a colour; the outline says "iron lattice").
+        outline = next((tags for outline_cells, tags in replaced if len(cells & outline_cells) >= 0.5 * len(cells)), None)
+        if outline:
+            inherited = {k: outline[k] for k in INHERITED_TAGS if k in outline}
+            element = {**element, "tags": {**inherited, **element.get("tags", {})}}
+        parts.append(make(element, cells, part=True))
     for part in parts:
         if part.base == 0:
             water -= part.cells
@@ -849,9 +970,18 @@ def building_ops(b: Building, flat: Callable[..., list[BuildOp]], ground: int) -
     wall_top = top_y - len(layers) if layers else top_y
     if wall_top >= bottom:
         ops += flat(walls, bottom, wall_top, b.wall)
-        if b.wall not in ("glass", "iron_bars") and wall_top - bottom >= 2:
+        if b.windows != "none" and wall_top - bottom >= 2:
+            # Separate windows: every third block along each wall (walls run along x or z, so x + z works).
+            punched = {c for c in walls if (c[0] + c[1]) % 3 == 1}
             for y in range(bottom + 1, wall_top, 3):
-                ops += flat(walls, y, y, "glass")
+                if b.windows == "curtain":
+                    ops += flat(walls, y, min(y + 1, wall_top - 1), "glass_pane")  # glass with a thin frame row
+                elif b.windows == "shop" and y == bottom + 1:
+                    ops += flat(walls, y, y, "glass_pane")  # shop windows at street level
+                else:
+                    ops += flat(punched, y, y, "glass_pane")
+        if b.trim and not layers and b.base == 0 and wall_top - bottom >= 4:
+            ops += flat(walls, wall_top, wall_top, b.trim)
     if layers:
         for i, layer in enumerate(layers):
             ops += flat(layer, wall_top + 1 + i, wall_top + 1 + i, b.roof)

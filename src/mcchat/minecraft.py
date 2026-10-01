@@ -23,6 +23,8 @@ from typing import Any, AsyncIterable, Awaitable, Callable
 from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
+from .palette import fallbacks
+
 log = logging.getLogger(__name__)
 
 # Minecraft rejects very long command lines, so replies are split into chunks.
@@ -126,6 +128,21 @@ def parse_testforblock(response: dict[str, Any]) -> str:
     return re.sub(r"[^a-z0-9]+", "_", name).strip("_") or "unknown"
 
 
+def block_positions(parts: list[str]) -> list[int]:
+    """Where the block names are in a split fill/setblock command."""
+    if parts and parts[0] == "setblock" and len(parts) > 4:
+        return [4]
+    if parts and parts[0] == "fill" and len(parts) > 7:
+        return [7, 9] if len(parts) > 9 and parts[8] == "replace" else [7]
+    return []
+
+
+def _rejects_block(response: dict[str, Any], block: str) -> bool:
+    """Did this failure complain about the block name itself (rather than, say, nothing changing)?"""
+    message = str(response.get("statusMessage", "")).lower()
+    return block in message or any(w in message for w in ("syntax", "unknown", "not found", "invalid"))
+
+
 def quote_target(name: str) -> str:
     """Quote a player name for use as a command target selector."""
     return '"' + name.replace("\\", "\\\\").replace('"', '\\"') + '"'
@@ -153,6 +170,8 @@ class MinecraftConnection:
         self._send = send
         self._remote = remote
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        # Blocks this world rejected, and the fallback that worked instead (see palette.py).
+        self.block_substitutes: dict[str, str] = {}
 
     @classmethod
     def from_websocket(cls, ws: ServerConnection) -> MinecraftConnection:
@@ -190,7 +209,10 @@ class MinecraftConnection:
         async def run(command: str) -> None:
             async with semaphore:
                 try:
+                    command = self._with_substitutes(command)
                     response = await self.run_command(command)
+                    if response.get("statusCode", 0) < 0:
+                        response = await self._retry_with_fallbacks(command, response)
                 except asyncio.TimeoutError:
                     errors.append(f"timed out: {command}")
                     return
@@ -202,6 +224,39 @@ class MinecraftConnection:
 
         await asyncio.gather(*(run(command) for command in commands))
         return errors
+
+    def _resolve(self, block: str) -> str:
+        seen = set()
+        while block in self.block_substitutes and block not in seen:
+            seen.add(block)
+            block = self.block_substitutes[block]
+        return block
+
+    def _with_substitutes(self, command: str) -> str:
+        if not self.block_substitutes:
+            return command
+        parts = command.split(" ")
+        for index in block_positions(parts):
+            parts[index] = self._resolve(parts[index])
+        return " ".join(parts)
+
+    async def _retry_with_fallbacks(self, command: str, response: dict[str, Any]) -> dict[str, Any]:
+        """If Minecraft rejected a block name, retry with its fallbacks and remember what works."""
+        message = str(response.get("statusMessage", "")).lower()
+        parts = command.split(" ")
+        for index in block_positions(parts):
+            block = parts[index]
+            options = fallbacks(block)
+            if not options or not (block in message or any(w in message for w in ("syntax", "unknown", "not found", "invalid"))):
+                continue
+            for option in options:
+                replacement = self._resolve(option)
+                retried = await self.run_command(" ".join(parts[:index] + [replacement] + parts[index + 1:]))
+                if retried.get("statusCode", 0) >= 0 or not _rejects_block(retried, replacement):
+                    self.block_substitutes[block] = replacement
+                    log.info("This world doesn't know %s; using %s instead", block, replacement)
+                    return retried
+        return response
 
     async def query_player(self, name: str) -> dict[str, Any]:
         """Position and rotation of a player via /querytarget: {"position": {x, y, z}, "yRot": ...}."""

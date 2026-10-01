@@ -85,8 +85,10 @@ def test_building_height_and_materials():
     assert building_height({"building": "apartments", "building:levels": "4"}, 2.0) == 6
     assert building_height({"building": "house"}, 2.0) == 3
     assert building_height({"building": "yes", "height": "330"}, 2.0) == 160, "capped (the Eiffel Tower at 2 m per block)"
-    assert building_materials({"building": "house"}) == ("brick_block", "dark_oak_planks")
-    assert building_materials({"building": "yes", "building:colour": "#ffffff", "roof:colour": "red"}) == ("white_concrete", "red_concrete")
+    assert building_materials({"building": "house"}) == ("brick_block", "deepslate_tiles")
+    assert building_materials({"building": "house"}, seed=1)[1] == "red_terracotta", "roofs vary from house to house"
+    wall, roof = building_materials({"building": "yes", "building:colour": "#ffffff", "roof:colour": "red"})
+    assert wall in ("quartz_block", "calcite", "smooth_quartz") and roof == "red_terracotta"
     assert building_materials({"building": "office", "building:material": "glass"})[0] == "glass"
     assert colour_block("grey") == "gray_concrete" and colour_block("#2030a0") == "blue_concrete" and colour_block("nonsense") is None
 
@@ -132,7 +134,7 @@ def test_map_ops_world_coordinates():
     assert walls and all(op.y1 == 64 and op.y2 == 66 for op in walls)
     assert any(op.block == "water" and op.y1 == 62 for op in ops)
     assert any(op.block == "stone" and op.mode == "keep" and op.y1 == 61 for op in ops), "water is supported"
-    roof = [op for op in ops if op.block == "dark_oak_planks"]
+    roof = [op for op in ops if op.block == "deepslate_tiles"]
     assert roof and all(op.y1 == 67 for op in roof)
 
 
@@ -342,3 +344,89 @@ def test_ai_models_landmarks_at_their_footprint():
     assert model_x == (min(xs) + max(xs)) // 2, "centred on the real footprint"
     _, ops = map_ops(layout, centre=(100, 0), ground=10)
     assert any(op.block == "stone" and op.y2 == 10 + 20 for op in ops), "the model is placed in world coordinates"
+
+
+# --- Materials and windows ---------------------------------------------------------------
+
+from mcchat.palette import BEDROCK_BLOCKS, FACADE_RGB, nearest  # noqa: E402
+from mcchat.realworld import window_style  # noqa: E402
+
+
+def test_materials_follow_the_tags():
+    assert building_materials({"building": "yes", "building:material": "brick"})[0] == "brick_block"
+    assert building_materials({"building": "yes", "building:material": "stone"})[0] == "stone_bricks"
+    assert building_materials({"building": "yes", "building:material": "limestone"})[0] == "calcite"
+    assert building_materials({"building": "yes", "building:material": "sandstone"})[0] == "cut_sandstone"
+    assert building_materials({"building": "church"}) == ("stone_bricks", "deepslate_tiles")
+    assert building_materials({"building": "yes", "roof:material": "slate"})[1] == "deepslate_tiles"
+    assert building_materials({"building": "yes", "roof:material": "thatch"})[1] == "hay_block"
+    assert building_materials({"building": "cathedral", "roof:shape": "dome"})[1] == "oxidized_copper"
+    # A colour on a painted wall picks the nearest facade; a real material keeps its texture.
+    assert building_materials({"building": "yes", "building:material": "plaster", "building:colour": "#c2b280"})[0] in (
+        "smooth_sandstone", "cut_sandstone")
+    assert building_materials({"building": "yes", "building:material": "brick", "building:colour": "#ffffff"})[0] == "brick_block"
+
+
+def test_untagged_buildings_get_a_mix_of_facades():
+    walls = {building_materials({"building": "yes"}, seed)[0] for seed in range(20)}
+    assert len(walls) >= 4 and walls <= BEDROCK_BLOCKS
+
+
+def test_nearest_facade_colours():
+    assert nearest((150, 97, 83), FACADE_RGB) == "brick_block"
+    assert nearest((120, 120, 120), FACADE_RGB) in ("stone_bricks", "polished_andesite", "light_gray_concrete")
+
+
+def test_window_styles():
+    assert window_style("office", "light_gray_concrete", 10) == "curtain"
+    assert window_style("yes", "brick_block", 25) == "curtain", "towers are mostly glass"
+    assert window_style("retail", "white_terracotta", 4) == "shop"
+    assert window_style("house", "brick_block", 3) == "punched"
+    assert window_style("tower", "iron_bars", 100) == "none"
+
+
+def test_punched_windows_and_cornice():
+    shop = [tower_element(7, {"building": "yes", "building:material": "brick", "height": "16"}, square(0, 0, 9, 6))]
+    layout = lay_out_map(shop, PROJECT, 40)
+    _, ops = map_ops(layout, centre=(0, 0), ground=0)
+    panes = [op for op in ops if op.block == "glass_pane"]
+    assert panes and all(op.y1 == op.y2 for op in panes), "rows of separate windows"
+    assert any(op.block == "stone_bricks" and op.y1 == 8 for op in ops), "a stone cornice on top of the brick walls"
+
+
+# --- Block fallbacks -----------------------------------------------------------------------
+
+def test_unknown_blocks_fall_back_and_are_remembered():
+    from mcchat.minecraft import MinecraftConnection
+
+    sent = []
+
+    class OldWorld(MinecraftConnection):
+        async def run_command(self, command_line, timeout=10.0):
+            sent.append(command_line)
+            if "stone_bricks" in command_line:
+                return {"statusCode": -2147483648, "statusMessage": 'Syntax error: Unexpected "stone_bricks": at "0 0 0 >>stone_bricks<<"'}
+            return {"statusCode": 0}
+
+    async def send(text):
+        pass
+
+    world = OldWorld(send, "old")
+    errors = asyncio.run(world.run_commands(["fill 0 0 0 1 1 1 stone_bricks", "setblock 5 5 5 mossy_stone_bricks"], concurrency=1))
+    assert errors == []
+    assert world.block_substitutes == {"stone_bricks": "stonebrick", "mossy_stone_bricks": "stonebrick"}
+    sent.clear()
+    asyncio.run(world.run_commands(["fill 2 2 2 3 3 3 stone_bricks replace stone_bricks"]))
+    assert sent == ["fill 2 2 2 3 3 3 stonebrick replace stonebrick"], "later commands use what works straight away"
+
+
+def test_parts_inherit_the_outline_material():
+    elements = [
+        tower_element(10, {"building": "tower", "building:part": "no", "tower:construction": "lattice",
+                           "building:material": "iron", "building:colour": "#706550", "height": "100"}, square(-6, -6, 6, 6)),
+        tower_element(11, {"building:part": "yes", "building:colour": "#706550", "height": "40"}, square(-6, -6, 6, 6)),
+        tower_element(12, {"building:part": "yes", "building:material": "glass", "min_height": "40", "height": "44"}, square(-2, -2, 2, 2)),
+    ]
+    parts = {b.osm: b for b in lay_out_map(elements, PROJECT, 40).buildings if b.part}
+    assert parts["way/11"].wall == "iron_bars", "a colour-only part inherits the lattice"
+    assert parts["way/12"].wall == "glass", "a part's own material wins"

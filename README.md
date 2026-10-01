@@ -126,8 +126,14 @@ the approach used by [Arnis](https://github.com/louis-e/arnis), done live with c
 3. Everything is projected onto the block grid: areas are filled, lines are drawn at their real
    widths, river outlines made of many pieces are joined, and buildings are raised to their real
    height (`height` or `building:levels`, up to 160 blocks) with walls, window bands and roofs.
-   Materials come from the building type and its `building:colour` / `building:material` tags;
-   steel structures (towers, masts) become a lattice of iron bars.
+   **Materials** come from the map's tags: `building:material` (brick, stone, limestone, sandstone,
+   marble, timber, glass, copper...), `roof:material` (slate, clay tiles, copper, thatch...), and
+   `building:colour` / `roof:colour`, matched to the nearest real facade block (brick, stone bricks,
+   sandstone, quartz, terracotta) by how colours look to people. Untagged buildings get a realistic mix
+   of facades. Windows are glass panes: separate windows in masonry, shop windows at street level,
+   mostly glass for offices and towers, and flat-roofed masonry gets a stone cornice. Steel and
+   lattice structures (towers, masts) become iron bars, and 3D parts inherit their building's
+   material unless they set their own.
 4. **3D shapes.** Where OpenStreetMap has "Simple 3D Buildings" data, each `building:part` is built
    from its own `min_height` to `height` with its `roof:shape` (pyramidal, hipped, gabled, dome,
    onion, cone), replacing the flat outline. Many landmarks are mapped this way: the Eiffel Tower's
@@ -195,7 +201,14 @@ How it works (adapted from [BuilderGPT](https://github.com/CyniaAI/BuilderGPT)):
    face them and sent as `fill` / `setblock` commands, with large fills split to
    Bedrock's 32,768-block limit.
 
-Only one build runs at a time. Block states (stair direction etc.) aren't supported yet.
+Only one build runs at a time per world. Block states (stair direction etc.) aren't supported yet.
+
+**Blocks.** Builds can use about 240 blocks (`src/mcchat/palette.py`): the ones proven in
+Minecraft Education, plus newer ones such as stone brick variants, cut and smooth sandstone, smooth
+quartz, terracotta, copper (including oxidized), slabs, stairs and glass panes. Bedrock has renamed
+many blocks between versions, so each newer block has fallbacks: if a world rejects a block name,
+the server retries with the fallback (e.g. `stone_bricks` → `stonebrick`) and remembers what works
+for that world.
 
 ### Setting up from chat (`!setup`)
 

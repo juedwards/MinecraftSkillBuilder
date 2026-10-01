@@ -30,37 +30,8 @@ SCRIPT_MEMORY_LIMIT = 64 * 1024 * 1024
 GAP = 2  # blocks between the player and the front of the build
 PLAYER_EYE_HEIGHT = 1.62  # Bedrock reports player positions at eye level
 
-_COLOURS = (
-    "white orange magenta light_blue yellow lime pink gray "
-    "light_gray cyan purple blue brown green red black"
-).split()
-
-# Block IDs valid in current Bedrock / Education Edition. Restricting the model to this
-# list also guarantees nothing but a plain identifier ever reaches a command line.
-BEDROCK_BLOCKS = frozenset(
-    """
-    air stone granite polished_granite diorite polished_diorite andesite polished_andesite
-    cobblestone mossy_cobblestone smooth_stone brick_block sandstone red_sandstone
-    deepslate cobbled_deepslate polished_deepslate deepslate_bricks deepslate_tiles
-    blackstone polished_blackstone polished_blackstone_bricks tuff calcite mud_bricks packed_mud
-    dirt grass_block podzol moss_block sand gravel clay snow ice packed_ice blue_ice water
-    oak_planks spruce_planks birch_planks jungle_planks acacia_planks dark_oak_planks
-    mangrove_planks cherry_planks bamboo_planks crimson_planks warped_planks
-    oak_log spruce_log birch_log jungle_log acacia_log dark_oak_log mangrove_log cherry_log
-    stripped_oak_log stripped_spruce_log stripped_birch_log stripped_dark_oak_log
-    oak_leaves spruce_leaves birch_leaves jungle_leaves cherry_leaves azalea_leaves
-    oak_stairs spruce_stairs birch_stairs dark_oak_stairs stone_brick_stairs brick_stairs
-    sandstone_stairs quartz_stairs oak_fence spruce_fence dark_oak_fence cobblestone_wall
-    glass glass_pane iron_bars ladder vine
-    quartz_block quartz_bricks purpur_block prismarine end_bricks nether_brick red_nether_brick
-    netherrack obsidian bone_block honeycomb_block
-    iron_block gold_block diamond_block emerald_block lapis_block redstone_block coal_block
-    copper_block amethyst_block
-    glowstone sea_lantern lantern torch bookshelf crafting_table hay_block
-    pumpkin carved_pumpkin melon_block cactus
-    """.split()
-    + [f"{c}_{kind}" for c in _COLOURS for kind in ("wool", "concrete", "terracotta", "stained_glass")]
-)
+# Blocks builds may use (see palette.py for the list, fallbacks and why).
+from .palette import BEDROCK_BLOCKS  # noqa: E402  (re-exported for the other modules)
 
 # Minecraft reports these as errors, but they only mean the blocks were already right.
 _NOTHING_CHANGED = re.compile(r"no blocks|\b0 blocks|couldn't be placed|could not be placed", re.IGNORECASE)
@@ -139,6 +110,7 @@ with the lowest Z); that side will face the player.
 - The terrain may not be flat or empty: clear the space with "air" first if needed, and lay \
 your own floor or ground blocks.
 - Block states (facing, etc.) are not supported; only plain block names.
+- Choose materials like a real builder: stone bricks, quartz, sandstone or calcite for grand and \nhistoric buildings; brick with slate (deepslate_tiles) or clay-tile (red_terracotta) roofs for homes; \nplanks and logs for timber buildings; glass panes for windows; slabs for roof edges and trims; \ncopper (oxidized_copper) for green domes and spires. Vary textures (e.g. cracked or mossy stone \nbricks for old walls) and add trim so walls aren't one flat block.
 - Blocks behave with real game physics: sand and gravel fall and water flows down and \
 spreads, so always put solid blocks under them and walls around water.
 """
