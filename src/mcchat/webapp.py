@@ -1,15 +1,24 @@
-"""Minecraft Skill Builder: the web interface (activity, players & history, rubrics, settings)."""
+"""Minecraft Skill Builder: the web interface (activity, players & history, rubrics, costs, settings).
+
+Locally it only answers on localhost. Hosted (Settings.hosted), it also accepts Minecraft
+connections at /mc/<join code>, and every other page requires the platform's sign-in
+(Azure App Service authentication with Microsoft Entra ID), failing closed if that's off.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
+import os
 from pathlib import Path
+from typing import AsyncIterator
 from urllib.parse import urlsplit
 
-from aiohttp import web
+from aiohttp import WSMsgType, web
 
 from .assessment import RubricError
+from .minecraft import MinecraftConnection
 from .runtime import Runtime, SettingsError
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -19,19 +28,45 @@ KEEPALIVE_SECONDS = 15
 RUNTIME = web.AppKey("runtime", Runtime)
 
 
+PRINCIPAL_HEADER = "X-MS-CLIENT-PRINCIPAL-NAME"  # set by App Service authentication after sign-in
+
+
+def platform_sign_in_enabled() -> bool:
+    """App Service sets this when its authentication (Easy Auth) is turned on for the app."""
+    return os.environ.get("WEBSITE_AUTH_ENABLED", "").strip().lower() == "true"
+
+
 @web.middleware
-async def local_only(request: web.Request, handler):
-    """Reject requests not addressed to localhost (DNS rebinding) or sent by other sites (CSRF)."""
-    host = urlsplit(f"//{request.host}").hostname or ""
+async def guard(request: web.Request, handler):
+    """Who may use the teacher pages.
+
+    Locally: only requests addressed to localhost (no DNS rebinding) and not sent by other sites (CSRF).
+    Hosted: only signed-in users, via the platform's sign-in, which also strips forged identity headers;
+    if the platform's sign-in isn't on, nothing is served (fail closed). Minecraft's /mc endpoint is
+    protected by its join code instead.
+    """
+    if request.path == "/mc" or request.path.startswith("/mc/"):
+        return await handler(request)
     origin = request.headers.get("Origin")
+    if request.app[RUNTIME].settings.hosted:
+        if not platform_sign_in_enabled():
+            return web.json_response({"error": "Sign-in isn't set up for this app, so the teacher pages are off."}, status=503)
+        if not request.headers.get(PRINCIPAL_HEADER):
+            return web.json_response({"error": "Sign in required."}, status=401)
+        if origin and urlsplit(origin).netloc != request.host:
+            return web.json_response({"error": "Forbidden"}, status=403)
+        return await handler(request)
+    host = urlsplit(f"//{request.host}").hostname or ""
     if host not in LOCAL_HOSTS or (origin and urlsplit(origin).hostname not in LOCAL_HOSTS):
         return web.json_response({"error": "Forbidden"}, status=403)
     return await handler(request)
 
 
 def create_app(runtime: Runtime) -> web.Application:
-    app = web.Application(middlewares=[local_only])
+    app = web.Application(middlewares=[guard])
     app[RUNTIME] = runtime
+    app.router.add_get("/mc", minecraft_socket)
+    app.router.add_get("/mc/{code}", minecraft_socket)
     app.router.add_get("/", index)
     app.router.add_get("/api/status", status)
     app.router.add_get("/api/events", events)
@@ -60,8 +95,51 @@ async def index(request: web.Request) -> web.FileResponse:
     return web.FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-cache"})
 
 
+def connect_command(request: web.Request) -> str:
+    """The /connect command students type in Minecraft to reach this server."""
+    settings = request.app[RUNTIME].settings
+    if not settings.hosted:
+        return f"/connect localhost:{request.app[RUNTIME].server.port}"
+    base = settings.public_url or f"{request.headers.get('X-Forwarded-Proto', request.scheme)}://{request.host}"
+    base = base.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
+    return f"/connect {base}/mc/{settings.join_code}"
+
+
 async def status(request: web.Request) -> web.Response:
-    return web.json_response(request.app[RUNTIME].status())
+    body = request.app[RUNTIME].status()
+    body["connect"] = connect_command(request)
+    body["user"] = request.headers.get(PRINCIPAL_HEADER, "")
+    return web.json_response(body)
+
+
+async def minecraft_socket(request: web.Request) -> web.StreamResponse:
+    """Minecraft connecting through the web server (hosted): /connect wss://<host>/mc/<join code>."""
+    runtime = request.app[RUNTIME]
+    expected = runtime.settings.join_code
+    code = request.match_info.get("code", "")
+    if (runtime.settings.hosted or expected) and not (expected and hmac.compare_digest(code, expected)):
+        return web.Response(status=403, text="Wrong or missing join code.")
+    ws = web.WebSocketResponse(heartbeat=None, max_msg_size=16 * 1024 * 1024)
+    if not ws.can_prepare(request).ok:
+        return web.Response(text=f"This is the Minecraft address. In Minecraft, type: {connect_command(request)}")
+    await ws.prepare(request)
+    remote = request.headers.get("X-Forwarded-For", request.remote or "unknown").split(",")[0].strip()
+
+    async def frames() -> AsyncIterator[str | bytes]:
+        async for message in ws:
+            if message.type in (WSMsgType.TEXT, WSMsgType.BINARY):
+                yield message.data
+            elif message.type == WSMsgType.ERROR:
+                break
+
+    async def send(text: str) -> None:
+        await ws.send_str(text)
+
+    try:
+        await runtime.server.serve_connection(MinecraftConnection(send, remote), frames())
+    except ConnectionResetError:
+        pass
+    return ws
 
 
 async def events(request: web.Request) -> web.StreamResponse:

@@ -44,10 +44,17 @@ class Settings:
     price_input_per_million: float = 1.25
     price_output_per_million: float = 10.0
     currency: str = "$"
+    # Hosting (e.g. Azure App Service): one public address, Minecraft connects to /mc/<join code>,
+    # and the teacher pages require the platform's sign-in.
+    hosted: bool = False
+    join_code: str = ""
+    public_url: str = ""
 
     @classmethod
     def from_env(cls, path: Path = ENV_FILE) -> "Settings":
-        load_dotenv(path)
+        # When hosted, the platform's app settings are only starting values: changes saved from the
+        # Settings page (in .env) must win after a restart.
+        load_dotenv(path, override=_bool(os.environ.get("HOSTED")))
         env = os.environ.get
         # AZURE_OPENAI_* names (as shown in the Azure portal) are accepted as fallbacks.
         return cls(
@@ -65,6 +72,9 @@ class Settings:
             price_input_per_million=_float(env("PRICE_INPUT_PER_M"), 1.25),
             price_output_per_million=_float(env("PRICE_OUTPUT_PER_M"), 10.0),
             currency=env("CURRENCY") or "$",
+            hosted=_bool(env("HOSTED")),
+            join_code=(env("JOIN_CODE") or "").strip(),
+            public_url=(env("PUBLIC_URL") or "").strip().rstrip("/"),
         )
 
     def missing_azure_settings(self) -> list[str]:

@@ -3,6 +3,10 @@
 In game, a player runs `/connect <host>:<port>`. Minecraft then opens a WebSocket
 to this server. We subscribe to `PlayerMessage` events to read chat, and send
 `commandRequest` messages (e.g. `tellraw`) to write back into chat.
+
+The protocol code doesn't depend on the WebSocket library: `MinecraftServer` listens on its
+own port (local use), and `serve_connection` also runs connections accepted by the web server
+(hosted use, where Minecraft connects to `/mc/<join code>` on the one public address).
 """
 
 from __future__ import annotations
@@ -14,7 +18,7 @@ import re
 import textwrap
 import uuid
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any, AsyncIterable, Awaitable, Callable
 
 from websockets.asyncio.server import Server, ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
@@ -143,19 +147,24 @@ def split_for_chat(text: str, width: int = MAX_CHAT_CHUNK) -> list[str]:
 
 
 class MinecraftConnection:
-    """One connected Minecraft client."""
+    """One connected Minecraft client (one world)."""
 
-    def __init__(self, ws: ServerConnection):
-        self._ws = ws
+    def __init__(self, send: Callable[[str], Awaitable[None]], remote: str = "unknown"):
+        self._send = send
+        self._remote = remote
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+
+    @classmethod
+    def from_websocket(cls, ws: ServerConnection) -> MinecraftConnection:
+        addr = ws.remote_address
+        return cls(ws.send, f"{addr[0]}:{addr[1]}" if addr else "unknown")
 
     @property
     def remote(self) -> str:
-        addr = self._ws.remote_address
-        return f"{addr[0]}:{addr[1]}" if addr else "unknown"
+        return self._remote
 
     async def subscribe(self, event_name: str) -> None:
-        await self._ws.send(json.dumps(build_subscribe(event_name)))
+        await self._send(json.dumps(build_subscribe(event_name)))
 
     async def run_command(self, command_line: str, timeout: float = COMMAND_TIMEOUT) -> dict[str, Any]:
         """Run a slash command (without the leading slash) and return Minecraft's response body."""
@@ -163,7 +172,7 @@ class MinecraftConnection:
         future = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
         try:
-            await self._ws.send(json.dumps(build_command(command_line, request_id)))
+            await self._send(json.dumps(build_command(command_line, request_id)))
             return await asyncio.wait_for(future, timeout)
         finally:
             self._pending.pop(request_id, None)
@@ -302,7 +311,10 @@ class MinecraftServer:
             await self._server.wait_closed()
 
     async def _handle(self, ws: ServerConnection) -> None:
-        conn = MinecraftConnection(ws)
+        await self.serve_connection(MinecraftConnection.from_websocket(ws), ws)
+
+    async def serve_connection(self, conn: MinecraftConnection, frames: AsyncIterable[str | bytes]) -> None:
+        """Run one Minecraft connection until it closes: subscribe, then dispatch its frames."""
         tasks: set[asyncio.Task[None]] = set()
 
         # Callbacks run in their own tasks so this loop keeps receiving
@@ -318,7 +330,7 @@ class MinecraftServer:
                 for event_name in GAME_EVENTS:
                     await conn.subscribe(event_name)
             spawn(self._run_callback(_maybe_await(self._on_connect, conn), "Connect handler"))
-            async for raw in ws:
+            async for raw in frames:
                 message = conn.handle_raw(raw)
                 if isinstance(message, GameEvent):
                     if self._on_game_event is not None:

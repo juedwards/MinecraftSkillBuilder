@@ -200,6 +200,33 @@ them to `.env`. Type `!cancel` to stop.
   the bot. To change credentials later, edit `.env` and restart.
 - Only one player can run setup at a time (it times out after 5 minutes idle).
 
+## Hosting on Azure (for many worlds and players)
+
+Run one server in Azure that many Minecraft worlds connect to, each with its own build queue.
+`deploy/azure/deploy.ps1` sets it up on **Azure App Service** (Linux, Python 3.12, about US$13 a
+month on the B1 tier):
+
+```powershell
+az login
+./deploy/azure/deploy.ps1            # shows the plan and asks before creating anything
+./deploy/azure/deploy.ps1 -CodeOnly  # later: upload new code to the same app
+```
+
+It creates a resource group, App Service plan and web app (WebSockets and Always On), an
+Entra ID app registration for sign-in, and the app settings (your Azure AI endpoint, key and
+model come from your local `.env`). How it works when hosted (`HOSTED=true`):
+
+- **One address.** Minecraft connects to `wss://<app>.azurewebsites.net/mc/<join code>`; the
+  exact `/connect` command is shown at the top of the Activity tab. The secret **join code**
+  stops strangers using your AI. (Plain `ws://` works too, in case Minecraft needs it.)
+- **Sign-in.** The teacher pages need Microsoft Entra ID sign-in, using App Service's built-in
+  authentication. The app refuses to show them if that sign-in isn't switched on. Only accounts
+  in your directory can sign in; invite other teachers as guests.
+- **Data** (settings, rubrics, reports, usage, map cache) lives in `/home/data`, which persists
+  across restarts and deployments. Changes saved on the Settings page win over the initial app settings.
+
+Remove everything with `az group delete -n rg-minecraft-skill-builder`.
+
 ## Troubleshooting
 
 - **`/connect` does nothing or says it's already connected:** Minecraft allows one

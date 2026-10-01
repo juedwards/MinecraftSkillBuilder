@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -69,7 +71,35 @@ def local_ip() -> str | None:
         return None
 
 
+BUNDLED_RUBRICS = Path(__file__).resolve().parents[2] / "rubrics"
+
+
+def use_data_dir(data_dir: Path) -> None:
+    """Keep settings, rubrics, reports, usage and the map cache in `data_dir` (e.g. persistent storage
+    when hosted). The example rubrics are copied there the first time."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    rubrics = data_dir / "rubrics"
+    if not rubrics.is_dir() and BUNDLED_RUBRICS.is_dir():
+        shutil.copytree(BUNDLED_RUBRICS, rubrics)
+    os.chdir(data_dir)
+
+
+async def run_hosted(settings: Settings, mock: bool) -> None:
+    """One public web address: teacher pages behind the platform's sign-in, Minecraft at /mc/<join code>."""
+    if not settings.join_code:
+        sys.exit("JOIN_CODE must be set when HOSTED=true (it stops strangers using your AI).")
+    runtime = Runtime.create(settings, mock)
+    runtime.events.add_listener(print_event)
+    await start_web(runtime, settings.web_host, settings.web_port)
+    log_line(f"Hosted mode: web on {settings.web_host}:{settings.web_port}  (LLM: {runtime.model_label or 'not configured'})")
+    log_line("Minecraft connects with /connect wss://<this app's address>/mc/<join code> (shown on the web page).")
+    await asyncio.Event().wait()  # serve until stopped
+
+
 async def run_serve(settings: Settings, mock: bool, web: bool, open_web: bool = False) -> None:
+    if settings.hosted:
+        await run_hosted(settings, mock)
+        return
     runtime = Runtime.create(settings, mock)
     llm = runtime.bridge.llm
     runtime.events.add_listener(print_event)
@@ -133,6 +163,7 @@ def main(argv: list[str] | None = None) -> None:
     serve.add_argument("--trigger", help='only answer messages starting with this, e.g. "!ai" (env MC_TRIGGER)')
     serve.add_argument("--private", action="store_true", help="reply only to the asking player")
     serve.add_argument("--mock", action="store_true", help="echo messages back instead of calling Azure")
+    serve.add_argument("--data-dir", help="folder for settings, rubrics, reports and usage (env DATA_DIR; default: current folder)")
 
     check = sub.add_parser("check", help="send one test prompt to Azure AI Foundry")
     check.add_argument("prompt", nargs="?", default="Say hello in five words.")
@@ -140,6 +171,9 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
 
+    data_dir = getattr(args, "data_dir", None) or os.environ.get("DATA_DIR")
+    if data_dir:
+        use_data_dir(Path(data_dir))
     settings = Settings.from_env()
     try:
         if args.command == "serve":

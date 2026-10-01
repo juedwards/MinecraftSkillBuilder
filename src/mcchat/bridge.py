@@ -74,7 +74,8 @@ class ChatBridge:
         self._history: dict[str, list[Message]] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._setup: SetupSession | None = None
-        self._building: str | None = None  # player whose build is in progress
+        # One build at a time per world (connection): each world's commands go to its own game.
+        self._building: dict[MinecraftConnection, str] = {}
         self.map_source: MapSource = map_source or OpenStreetMap()
         self.assessments = AssessmentManager(self, rubrics, reports_dir) if rubrics else None
 
@@ -83,8 +84,8 @@ class ChatBridge:
 
     @property
     def building(self) -> str | None:
-        """The player whose build is in progress, if any."""
-        return self._building
+        """The players whose builds are in progress (one per world), if any."""
+        return ", ".join(self._building.values()) or None
 
     def progress(self, conn: MinecraftConnection, player: str, private: bool | None = None) -> Progress:
         """Progress updates for a long operation: normal messages via `say`, grey heartbeats in between."""
@@ -96,15 +97,15 @@ class ChatBridge:
 
         return Progress(say, self.config.progress_interval, heartbeat=heartbeat)
 
-    def begin_build(self, player: str) -> str | None:
-        """Claim the (single) build slot. Returns the player already building, or None if claimed."""
-        if self._building:
-            return self._building
-        self._building = player
+    def begin_build(self, conn: MinecraftConnection, player: str) -> str | None:
+        """Claim this world's build slot. Returns the player already building there, or None if claimed."""
+        if conn in self._building:
+            return self._building[conn]
+        self._building[conn] = player
         return None
 
-    def end_build(self) -> None:
-        self._building = None
+    def end_build(self, conn: MinecraftConnection) -> None:
+        self._building.pop(conn, None)
 
     def handle_game_event(self, conn: MinecraftConnection, event: GameEvent) -> None:
         if self.assessments:
@@ -200,7 +201,7 @@ class ChatBridge:
         if self.llm is None:
             await self.reply(conn, player, "I'm not connected to an AI yet. Type !setup to connect me to Azure AI Foundry.", error=True)
             return
-        busy = self.begin_build(player)
+        busy = self.begin_build(conn, player)
         if busy:
             await self.reply(conn, player, f"I'm busy building for {busy}. Try again in a moment.")
             return
@@ -222,7 +223,7 @@ class ChatBridge:
             await self.reply(conn, player, f"Village failed: {message}", error=True)
             return
         finally:
-            self.end_build()
+            self.end_build(conn)
 
         summary = f"Welcome to {village.plan.name}! {len(village.built)} buildings and {villagers} villagers."
         if village.failed:
@@ -241,7 +242,7 @@ class ChatBridge:
         await self._build_place(conn, player, request)
 
     async def _build_place(self, conn: MinecraftConnection, player: str, request: MapRequest) -> None:
-        busy = self.begin_build(player)
+        busy = self.begin_build(conn, player)
         if busy:
             await self.reply(conn, player, f"I'm busy building for {busy}. Try again in a moment.")
             return
@@ -261,7 +262,7 @@ class ChatBridge:
             await self.reply(conn, player, f"Map failed: {message}", error=True)
             return
         finally:
-            self.end_build()
+            self.end_build(conn)
 
         summary = f"Welcome to {scene.place.name.split(',')[0]}: {scene.summary()}."
         if failed:
@@ -282,8 +283,8 @@ class ChatBridge:
                 error=True,
             )
             return
-        if self.building:
-            await self.reply(conn, player, f"I'm busy building for {self.building}. Try again in a moment.")
+        if conn in self._building:
+            await self.reply(conn, player, f"I'm busy building for {self._building[conn]}. Try again in a moment.")
             return
         with usage_context(player, BUILD):
             route = await route_build(self.llm, request)
@@ -294,7 +295,7 @@ class ChatBridge:
             await self._build_design(conn, player, route.request)
 
     async def _build_design(self, conn: MinecraftConnection, player: str, request: str) -> None:
-        busy = self.begin_build(player)
+        busy = self.begin_build(conn, player)
         if busy:
             await self.reply(conn, player, f"I'm busy building for {busy}. Try again in a moment.")
             return
@@ -317,7 +318,7 @@ class ChatBridge:
             await self.reply(conn, player, f"Build failed: {short_error(exc)}", error=True)
             return
         finally:
-            self.end_build()
+            self.end_build(conn)
 
         width, height, depth = result.size
         summary = f"Built {request} ({width}x{height}x{depth}, {result.commands} commands)."

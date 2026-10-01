@@ -496,7 +496,7 @@ class AssessmentManager:
     async def _prepare(self, conn: MinecraftConnection, session: AssessmentSession, rebuild_only: bool = False) -> None:
         """Design (first attempt only), build, teleport and give the task."""
         player = session.player
-        busy = self.bridge.begin_build(player)
+        busy = self.bridge.begin_build(conn, player)
         if busy:
             await self.say(conn, player, f"I'm busy building for {busy}. Type !challenge to try again in a moment.")
             self.sessions.pop(player, None)
@@ -535,7 +535,7 @@ class AssessmentManager:
             await self.say(conn, player, f"Sorry, I couldn't set up the challenge: {message}", error=True)
             return
         finally:
-            self.bridge.end_build()
+            self.bridge.end_build(conn)
 
         session.attempt += 1
         session.activity = []

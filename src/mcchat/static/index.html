@@ -111,6 +111,18 @@
 
   .card { background: var(--panel); border: 1px solid var(--border); }
 
+  /* Connect line */
+  .connect-line {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px;
+    border-left: 2px solid var(--cobalt);
+  }
+  .connect-line .label {
+    font-size: 10px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase; color: var(--muted);
+  }
+  .connect-line code { font-size: 13px; padding: 4px 8px; overflow-wrap: anywhere; }
+  .connect-line .btn { padding: 6px 14px; font-size: 12px; }
+  .connect-line .note { color: var(--muted); font-size: 12px; }
+
   /* Activity */
   #activity { display: flex; flex-direction: column; gap: 16px; height: 100%; }
   .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -304,6 +316,7 @@
     <span class="pill" id="ai-status"><span class="dot"></span><span>AI</span></span>
     <span class="pill" id="build-status" hidden><span class="dot warn"></span><span></span></span>
     <span class="pill" id="assess-status" hidden><span class="dot on"></span><span></span></span>
+    <span class="pill" id="user-status" hidden><span></span></span>
   </div>
 </header>
 <nav role="tablist">
@@ -315,6 +328,12 @@
 </nav>
 <main>
   <section id="activity">
+    <div class="card connect-line">
+      <span class="label">Connect Minecraft</span>
+      <code id="connect-cmd">/connect localhost:3000</code>
+      <button class="btn" type="button" id="copy-connect">Copy</button>
+      <span class="note">Type this in Minecraft chat (Websockets on, encryption off, cheats on).</span>
+    </div>
     <div class="toolbar" role="group" aria-label="Filter activity">
       <button class="chip" data-filter="all" aria-pressed="true">All</button>
       <button class="chip" data-filter="chat" aria-pressed="false">Chat</button>
@@ -325,7 +344,7 @@
       <span class="count" id="event-count"></span>
     </div>
     <div class="card" id="feed" aria-live="polite">
-      <div class="empty">Waiting for activity. Connect Minecraft with <code>/connect localhost:3000</code>.</div>
+      <div class="empty">Waiting for activity. Connect Minecraft with the command above.</div>
     </div>
   </section>
 
@@ -510,7 +529,11 @@ async function refreshStatus() {
   try {
     const s = await api("/api/status");
     const n = s.minecraft.connections.length;
-    setPill("#mc-status", n ? "on" : "off", n ? `Minecraft connected${n > 1 ? ` (${n})` : ""}` : `Waiting for Minecraft on :${s.minecraft.port}`);
+    setPill("#mc-status", n ? "on" : "off", n ? `${n} Minecraft world${n > 1 ? "s" : ""} connected` : "Waiting for Minecraft");
+    $("#connect-cmd").textContent = s.connect;
+    const user = $("#user-status");
+    user.hidden = !s.user;
+    $("span", user).textContent = s.user ? `Signed in as ${s.user}` : "";
     setPill("#ai-status", s.ai.configured ? "on" : "warn", s.ai.configured ? `AI: ${s.ai.model}` : "AI not set up");
     const build = $("#build-status");
     build.hidden = !s.building;
@@ -530,6 +553,17 @@ function setPill(sel, state, text) {
   $(".dot", pill).className = `dot ${state}`;
   $("span:last-child", pill).textContent = text;
 }
+
+$("#copy-connect").addEventListener("click", async () => {
+  const button = $("#copy-connect");
+  try {
+    await navigator.clipboard.writeText($("#connect-cmd").textContent);
+    button.textContent = "Copied";
+  } catch {
+    button.textContent = "Select and copy it";
+  }
+  setTimeout(() => { button.textContent = "Copy"; }, 2000);
+});
 
 /* ---------- Activity feed ---------- */
 const EVENT_KINDS = {

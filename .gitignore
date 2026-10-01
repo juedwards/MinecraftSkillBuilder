@@ -11,3 +11,4 @@ assessments/
 .claude/settings.local.json
 usage.jsonl
 .mapcache/
+deploy/azure/.deploy-state.json
