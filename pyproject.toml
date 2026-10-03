@@ -10,6 +10,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "quickjs>=1.19.4",
     "aiohttp>=3.14.3",
+    "prompt-toolkit>=3.0.43",
 ]
 
 [project.scripts]

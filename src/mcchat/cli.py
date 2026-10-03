@@ -11,43 +11,37 @@ import socket
 import subprocess
 import sys
 import webbrowser
-from datetime import datetime
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from .bridge import Event
 from .config import Settings
+from .console import Console, describe_os_error
 from .runtime import Runtime, build_llm
 from .webapp import start_web
 
+APP_NAME = "Minecraft Quest Builder"
+APP_TAGLINE = "For Minecraft Education and Bedrock"
 
-def log_line(text: str) -> None:
-    print(f"[{datetime.now():%H:%M:%S}] {text}", flush=True)
+
+def app_version() -> str:
+    try:
+        return version("minecraft-skill-builder")
+    except PackageNotFoundError:
+        return ""
 
 
-def print_event(event: Event) -> None:
-    kind = event["type"]
-    if kind == "question":
-        log_line(f"<{event['player']}> {event['text']}")
-    elif kind == "answer":
-        log_line(f"<AI -> {event['player']}> {event['text']}")
-    elif kind == "error":
-        log_line(f"!! LLM error for {event['player']}: {event['error']}")
-    elif kind in ("setup", "build", "assess"):
-        label = "challenge" if kind == "assess" else kind
-        log_line(f"[{label}] {event['player']}: {event['status']}")
-    elif kind == "assessment":
-        levels = ", ".join(f"{c['name']}: {c['level']}" for c in event["criteria"])
-        log_line(f"[challenge result] {event['player']} ({event['rubric']}, attempt {event['attempt']}): {levels}")
-        if event["report"]:
-            log_line(f"[challenge result] report saved to {event['report']}")
-    elif kind == "connected":
-        log_line(f"Minecraft connected from {event['remote']}")
-    elif kind == "disconnected":
-        log_line(f"Minecraft disconnected ({event['remote']})")
-    elif kind == "settings":
-        log_line(f"[settings] {event['status']}")
-    elif kind == "reset":
-        log_line(f"[reset] {event['player']}: conversation cleared")
+def ai_status(console: Console, runtime: Runtime) -> str:
+    if runtime.bridge.llm is None:
+        return console.warn("not connected") + "  type !setup in Minecraft, or use Settings on the web page"
+    if runtime.mock:
+        return console.warn("mock echo") + "  (replies repeat the message, no Azure)"
+    return console.ok(runtime.model_label) + "  Azure AI Foundry"
+
+
+def replies_summary(settings: Settings) -> str:
+    who = "only the player who asked" if settings.reply_private else "everyone"
+    what = f'chat starting with "{settings.trigger}"' if settings.trigger else "all chat"
+    return f"{what}, replies to {who}"
 
 
 def open_browser(url: str) -> None:
@@ -88,56 +82,79 @@ async def run_hosted(settings: Settings, mock: bool) -> None:
     """One public web address: teacher pages behind the platform's sign-in, Minecraft at /mc/<join code>."""
     if not settings.join_code:
         sys.exit("JOIN_CODE must be set when HOSTED=true (it stops strangers using your AI).")
+    console = Console.for_stream()
     runtime = Runtime.create(settings, mock)
-    runtime.events.add_listener(print_event)
+    runtime.events.add_listener(console.event)
     await start_web(runtime, settings.web_host, settings.web_port)
-    log_line(f"Hosted mode: web on {settings.web_host}:{settings.web_port}  (LLM: {runtime.model_label or 'not configured'})")
-    log_line("Minecraft connects with /connect ws://<this app's address>/mc/<join code> (shown on the web page).")
+    address = settings.public_url or "https://<this app's address>"
+    minecraft = address.replace("https://", "ws://").replace("http://", "ws://") + "/mc/<join code>"
+    console.banner(APP_NAME, APP_TAGLINE, app_version(), [
+        ("Mode", "hosted"),
+        ("Web", f"{address}  (listening on {settings.web_host}:{settings.web_port}, behind sign-in)"),
+        ("Minecraft", f"/connect {minecraft}  (the join code is shown on the web page)"),
+        ("AI", ai_status(console, runtime)),
+    ], footer="Activity is logged below.")
     await asyncio.Event().wait()  # serve until stopped
 
 
-async def run_serve(settings: Settings, mock: bool, web: bool, open_web: bool = False) -> None:
+def interactive_terminal() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+async def run_serve(settings: Settings, mock: bool, web: bool, open_web: bool = False, interactive: bool = False) -> None:
     if settings.hosted:
         await run_hosted(settings, mock)
         return
+    console = Console.for_stream()
     runtime = Runtime.create(settings, mock)
-    llm = runtime.bridge.llm
-    runtime.events.add_listener(print_event)
+    runtime.events.add_listener(console.event)
     await runtime.start()
     port = runtime.server.port
     if web:
         await start_web(runtime, settings.web_host, settings.web_port)
 
-    log_line(f"Listening on ws://{settings.host}:{port}  (LLM: {runtime.model_label or 'not configured'})")
-    if llm is None:
-        log_line("No Azure credentials found. Type !setup in Minecraft chat or use the Settings page.")
-    if settings.trigger:
-        log_line(f'Only answering chat that starts with "{settings.trigger}"')
-    if web:
-        log_line(f"Minecraft Quest Builder: http://localhost:{settings.web_port}")
-    print("\nIn Minecraft Education, open chat and run:")
-    print(f"    /connect localhost:{port}")
+    connect = console.code(f"/connect localhost:{port}")
     ip = local_ip()
     if ip:
-        print(f"If that fails, try:\n    /connect {ip}:{port}")
-    print("Press Ctrl+C to stop.\n", flush=True)
+        connect += f"\n{console.code(f'/connect {ip}:{port}')}  {console.style('if localhost does not work', '2')}"
+    rows = [("Minecraft", connect)]
+    if web:
+        rows.append(("Web", console.style(f"http://localhost:{settings.web_port}", "4")))
+    rows.append(("AI", ai_status(console, runtime)))
+    rows.append(("Chat", replies_summary(settings)))
+    if interactive:
+        footer = "Type /help for commands, or ask for changes in your own words. Ctrl+C stops the server."
+    else:
+        footer = "In Minecraft, open chat and type the /connect command. Press Ctrl+C to stop."
+    console.banner(APP_NAME, APP_TAGLINE, app_version(), rows, footer=footer)
     if web and open_web:
         open_browser(f"http://localhost:{settings.web_port}")
 
-    await runtime.server.serve_forever()
+    if not interactive:
+        await runtime.server.serve_forever()
+        return
+    from .teacher import TeacherConsole
+
+    await TeacherConsole(runtime, console).run()
+    console.info("Stopped.")
+    await runtime.server.close()
 
 
 async def run_check(settings: Settings, prompt: str) -> None:
+    console = Console.for_stream()
     llm = build_llm(settings, mock=False)
     if llm is None:
         missing = ", ".join(settings.missing_azure_settings())
-        sys.exit(f"Missing settings: {missing}. Fill in .env (see .env.example) or run `mcchat serve` and use !setup in chat.")
-    print(f"Asking {settings.azure_model}: {prompt}")
+        sys.exit(f"Missing settings: {missing}. Fill in .env (see .env.example) or run `skillbuilder` and use the Settings page.")
+    console.write(f"{console.style('Model', '2')}   {settings.azure_model}")
+    console.write(f"{console.style('Prompt', '2')}  {prompt}")
     try:
         reply = await llm.complete([{"role": "user", "content": prompt}])
     except Exception as exc:
+        console.write(f"{console.style('Result', '2')}  {console.style('request failed', '31')}")
         sys.exit(f"Azure AI Foundry request failed: {exc}")
-    print(f"Reply: {reply}")
+    console.write(f"{console.style('Reply', '2')}   {reply}")
+    console.write(f"{console.style('Result', '2')}  {console.ok('Azure AI Foundry is working')}")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -149,7 +166,7 @@ def main(argv: list[str] | None = None) -> None:
 
     parser = argparse.ArgumentParser(
         prog="skillbuilder",
-        description="Minecraft Skill Builder: an AI companion for Minecraft Education. Runs `serve` by default.",
+        description="Minecraft Quest Builder: an AI companion for Minecraft Education and Bedrock. Runs `serve` by default.",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -160,6 +177,7 @@ def main(argv: list[str] | None = None) -> None:
     serve.add_argument("--port", type=int, help="port (default 3000, env MC_PORT)")
     serve.add_argument("--web-port", type=int, help="Minecraft Quest Builder web UI port (default 8080, env WEB_PORT)")
     serve.add_argument("--no-web", action="store_true", help="don't start the web UI")
+    serve.add_argument("--no-console", action="store_true", help="no teacher console prompt in the terminal (just the activity log)")
     serve.add_argument("--trigger", help='only answer messages starting with this, e.g. "!ai" (env MC_TRIGGER)')
     serve.add_argument("--private", action="store_true", help="reply only to the asking player")
     serve.add_argument("--mock", action="store_true", help="echo messages back instead of calling Azure")
@@ -169,7 +187,8 @@ def main(argv: list[str] | None = None) -> None:
     check.add_argument("prompt", nargs="?", default="Say hello in five words.")
 
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.WARNING,
+                        format="%(asctime)s  %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
 
     data_dir = getattr(args, "data_dir", None) or os.environ.get("DATA_DIR")
     if data_dir:
@@ -187,10 +206,13 @@ def main(argv: list[str] | None = None) -> None:
                 settings.trigger = args.trigger
             if args.private:
                 settings.reply_private = True
-            asyncio.run(run_serve(settings, args.mock, web=not args.no_web, open_web=args.open))
+            interactive = not args.no_console and interactive_terminal()
+            asyncio.run(run_serve(settings, args.mock, web=not args.no_web, open_web=args.open, interactive=interactive))
         elif args.command == "check":
             asyncio.run(run_check(settings, args.prompt))
     except KeyboardInterrupt:
-        print("\nStopped.")
+        console = Console.for_stream()
+        console.write()
+        console.info("Stopped.")
     except OSError as exc:
-        sys.exit(f"Error: {exc}")
+        sys.exit(f"Error: {describe_os_error(exc)}")

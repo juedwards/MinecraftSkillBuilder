@@ -24,8 +24,8 @@ log = logging.getLogger(__name__)
 USAGE_FILE = Path("usage.jsonl")
 
 # Task types shown in the web interface.
-CHAT, BUILD, MAP, VILLAGE, CHALLENGE_SETUP, CHALLENGE_FEEDBACK, SETUP, OTHER = (
-    "Chat", "Build", "Map", "Village", "Challenge setup", "Challenge feedback", "Setup", "Other",
+CHAT, BUILD, MAP, VILLAGE, CHALLENGE_SETUP, CHALLENGE_FEEDBACK, SETUP, TEACHER, OTHER = (
+    "Chat", "Build", "Map", "Village", "Challenge setup", "Challenge feedback", "Setup", "Teacher assistant", "Other",
 )
 
 _current: ContextVar[tuple[str, str]] = ContextVar("usage_context", default=("(server)", OTHER))

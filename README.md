@@ -44,9 +44,45 @@ uv run skillbuilder --trigger '!ai'   # only answer chat messages starting with 
 uv run skillbuilder --private         # reply only to the player who asked
 uv run skillbuilder --mock            # echo bot, no Azure needed (to test the Minecraft connection)
 uv run skillbuilder check             # send one test prompt to Azure
+uv run skillbuilder --no-console      # activity log only, no teacher console prompt
 ```
 
 `mcchat` is an alias for `skillbuilder`.
+
+### Teacher console (in the terminal)
+
+When you run it in a terminal (WSL, macOS, Linux or Windows), a prompt stays at the bottom while
+activity scrolls above it, with a status bar showing Minecraft, the AI and the number of quests.
+Ask for things in your own words and the AI assistant proposes the change:
+
+```
+quest builder › write a quest about building a treehouse for 8 year olds
+quest builder › add a criterion about using redstone to the bridge quest
+quest builder › only answer chat that starts with !ai
+```
+
+Every change is shown first (settings as old → new, a new quest in full, a changed quest as a
+diff) and only applied when you answer `y`. The assistant can change settings and write, change
+or delete quests, but never the Azure endpoint, model or key. Its AI use appears on the Costs page
+as "Teacher assistant".
+
+Or use commands (Tab completes them and quest names):
+
+| Command | What it does |
+|---|---|
+| `/status` | Minecraft, AI and quests in progress |
+| `/settings` | Show the settings |
+| `/set <setting> <value>` | Change a setting: `trigger`, `private`, `history`, `prompt`, `endpoint`, `model`, `key` (asked for, hidden), `currency`, `price-in`, `price-out`. `/set` alone lists them. |
+| `/quests`, `/show <quest>` | List quests, show one |
+| `/new [quest]`, `/edit <quest>` | Write or edit a quest in your editor (`$EDITOR`, or nano) |
+| `/delete <quest>` | Delete a quest |
+| `/players` | Players online and who has talked to the AI |
+| `/say <message>` | Send a message to everyone in Minecraft |
+| `/clear` | Start a new conversation with the assistant |
+| `/quit` | Stop the server (or Ctrl+C) |
+
+Changes apply immediately and are saved, just like the web interface. When the output goes to a
+file (`skillbuilder > mcchat.log`) there's no prompt and the log is plain text.
 
 ### Minecraft Skill Builder (web interface)
 
