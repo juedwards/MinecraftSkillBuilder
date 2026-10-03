@@ -472,7 +472,7 @@ class AssessmentManager:
             return
         rubrics = self.rubrics.list()
         if not rubrics:
-            await self.say(conn, player, "There are no challenges yet. Ask your teacher to add one in Minecraft Skill Builder.", error=True)
+            await self.say(conn, player, "There are no challenges yet. Ask your teacher to add one in Minecraft Quest Builder.", error=True)
             return
         self.sessions[player] = AssessmentSession(player, "choosing", options=rubrics)
         self.emit(player, "choosing a rubric")

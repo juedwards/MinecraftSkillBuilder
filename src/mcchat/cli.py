@@ -114,7 +114,7 @@ async def run_serve(settings: Settings, mock: bool, web: bool, open_web: bool = 
     if settings.trigger:
         log_line(f'Only answering chat that starts with "{settings.trigger}"')
     if web:
-        log_line(f"Minecraft Skill Builder: http://localhost:{settings.web_port}")
+        log_line(f"Minecraft Quest Builder: http://localhost:{settings.web_port}")
     print("\nIn Minecraft Education, open chat and run:")
     print(f"    /connect localhost:{port}")
     ip = local_ip()
@@ -155,10 +155,10 @@ def main(argv: list[str] | None = None) -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     serve = sub.add_parser("serve", help="start the server Minecraft connects to, and the web interface (default)")
-    serve.add_argument("--open", action="store_true", help="open Minecraft Skill Builder in the browser")
+    serve.add_argument("--open", action="store_true", help="open Minecraft Quest Builder in the browser")
     serve.add_argument("--host", help="bind address (default 0.0.0.0, env MC_HOST)")
     serve.add_argument("--port", type=int, help="port (default 3000, env MC_PORT)")
-    serve.add_argument("--web-port", type=int, help="Minecraft Skill Builder web UI port (default 8080, env WEB_PORT)")
+    serve.add_argument("--web-port", type=int, help="Minecraft Quest Builder web UI port (default 8080, env WEB_PORT)")
     serve.add_argument("--no-web", action="store_true", help="don't start the web UI")
     serve.add_argument("--trigger", help='only answer messages starting with this, e.g. "!ai" (env MC_TRIGGER)')
     serve.add_argument("--private", action="store_true", help="reply only to the asking player")

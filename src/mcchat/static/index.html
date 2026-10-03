@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Minecraft Skill Builder</title>
+<title>Minecraft Quest Builder</title>
 <style>
   /* Minimal editorial look: near-white paper, ink text, hairline rules, square corners,
      uppercase letter-spaced labels. Cobalt blue (and its tints and shades) is the only highlight. */
@@ -309,7 +309,7 @@
       <rect x="0" y="14" width="12" height="12" fill="var(--cobalt-deep)"/>
       <rect x="14" y="14" width="12" height="12" fill="var(--cobalt-mid)"/>
     </svg>
-    <div><span class="brand-name">Minecraft Skill Builder</span><span class="brand-sub">For Minecraft Education</span></div>
+    <div><span class="brand-name">Minecraft Quest Builder</span><span class="brand-sub">For Minecraft Education and Bedrock</span></div>
   </div>
   <div class="status">
     <span class="pill" id="mc-status"><span class="dot"></span><span>Minecraft</span></span>
@@ -322,7 +322,7 @@
 <nav role="tablist">
   <button role="tab" aria-selected="true" data-tab="activity">Activity</button>
   <button role="tab" aria-selected="false" data-tab="players">Players</button>
-  <button role="tab" aria-selected="false" data-tab="rubrics">Rubrics</button>
+  <button role="tab" aria-selected="false" data-tab="rubrics">Quests</button>
   <button role="tab" aria-selected="false" data-tab="costs">Costs</button>
   <button role="tab" aria-selected="false" data-tab="settings">Settings</button>
 </nav>
@@ -361,8 +361,8 @@
 
   <section id="rubrics" hidden>
     <div class="card" id="rubric-side">
-      <div class="side-head"><button class="btn" type="button" id="new-rubric">+ New rubric</button></div>
-      <div id="rubric-list"><div class="empty">No rubrics yet.</div></div>
+      <div class="side-head"><button class="btn" type="button" id="new-rubric">+ New quest</button></div>
+      <div id="rubric-list"><div class="empty">No quests yet.</div></div>
     </div>
     <form class="card" id="rubric-editor">
       <div class="field">
@@ -371,12 +371,12 @@
         <small>Saved as <code>rubrics/<span id="rubric-file">…</span>.md</code>. Lowercase letters, numbers, - and _.</small>
       </div>
       <div class="field" style="flex: 1; display: flex; flex-direction: column;">
-        <label for="rubric-text">Rubric (Markdown)</label>
+        <label for="rubric-text">Quest (Markdown)</label>
         <textarea id="rubric-text" spellcheck="true"></textarea>
         <small>Start with a <code># Title</code>. Sections the AI uses: Learning aims, Learning objectives, Task, Starter build, Assessment criteria.</small>
       </div>
       <div class="row">
-        <button class="btn primary" type="submit">Save rubric</button>
+        <button class="btn primary" type="submit">Save quest</button>
         <span class="spacer"></span>
         <button class="btn danger" type="button" id="delete-rubric" hidden>Delete</button>
       </div>
@@ -545,7 +545,7 @@ async function refreshStatus() {
       ? `Challenge: ${active[0].player}`
       : `${active.length} challenges running`;
   } catch {
-    setPill("#mc-status", "off", "Skill Builder offline");
+    setPill("#mc-status", "off", "Quest Builder offline");
   }
 }
 function setPill(sel, state, text) {
@@ -707,7 +707,7 @@ $("#reset-btn").addEventListener("click", async () => {
 
 /* ---------- Rubrics ---------- */
 let selectedRubric = null;  // id of the rubric being edited, or null for a new one
-const RUBRIC_TEMPLATE = `# Rubric title
+const RUBRIC_TEMPLATE = `# Quest title
 
 ## Learning aims
 
@@ -736,7 +736,7 @@ async function loadRubrics() {
   const list = $("#rubric-list");
   const rubrics = await api("/api/rubrics");
   list.replaceChildren();
-  if (!rubrics.length) list.append(el("div", { className: "empty", textContent: "No rubrics yet." }));
+  if (!rubrics.length) list.append(el("div", { className: "empty", textContent: "No quests yet." }));
   for (const r of rubrics) {
     const btn = el("button", { className: "player", type: "button" },
       el("span", { className: "name", textContent: r.title }),
@@ -795,7 +795,7 @@ $("#rubric-editor").addEventListener("submit", async e => {
 });
 
 $("#delete-rubric").addEventListener("click", async () => {
-  if (!selectedRubric || !confirm(`Delete the rubric "${selectedRubric}"? This deletes rubrics/${selectedRubric}.md.`)) return;
+  if (!selectedRubric || !confirm(`Delete the quest "${selectedRubric}"? This deletes rubrics/${selectedRubric}.md.`)) return;
   try {
     await api(`/api/rubrics/${encodeURIComponent(selectedRubric)}`, { method: "DELETE" });
     selectedRubric = null;

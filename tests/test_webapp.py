@@ -151,7 +151,7 @@ def test_index_page_served(tmp_path):
         return resp.status, await resp.text()
 
     status, html = run(make_runtime(tmp_path), scenario)
-    assert status == 200 and "<title>Minecraft Skill Builder</title>" in html
+    assert status == 200 and "<title>Minecraft Quest Builder</title>" in html
 
 
 def test_rubric_api_crud(tmp_path):

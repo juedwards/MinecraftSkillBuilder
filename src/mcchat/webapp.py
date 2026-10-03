@@ -1,4 +1,4 @@
-"""Minecraft Skill Builder: the web interface (activity, players & history, rubrics, costs, settings).
+"""Minecraft Quest Builder: the web interface (activity, players & history, quests, costs, settings).
 
 Locally it only answers on localhost. Hosted (Settings.hosted), it also accepts Minecraft
 connections at /mc/<join code>, and every other page requires the platform's sign-in
@@ -206,7 +206,7 @@ async def list_rubrics(request: web.Request) -> web.Response:
 async def get_rubric(request: web.Request) -> web.Response:
     rubric = request.app[RUNTIME].rubrics.get(request.match_info["id"])
     if rubric is None:
-        return web.json_response({"error": "Rubric not found."}, status=404)
+        return web.json_response({"error": "Quest not found."}, status=404)
     return web.json_response({"id": rubric.id, "title": rubric.title, "text": rubric.text})
 
 
@@ -222,7 +222,7 @@ async def put_rubric(request: web.Request) -> web.Response:
         rubric = runtime.rubrics.save(request.match_info["id"], data["text"])
     except RubricError as exc:
         return web.json_response({"error": str(exc)}, status=400)
-    runtime.events.publish({"type": "settings", "status": f"rubric saved: {rubric.title}"})
+    runtime.events.publish({"type": "settings", "status": f"quest saved: {rubric.title}"})
     return web.json_response({"id": rubric.id, "title": rubric.title, "text": rubric.text})
 
 
@@ -233,8 +233,8 @@ async def delete_rubric(request: web.Request) -> web.Response:
     except RubricError as exc:
         return web.json_response({"error": str(exc)}, status=400)
     if not deleted:
-        return web.json_response({"error": "Rubric not found."}, status=404)
-    runtime.events.publish({"type": "settings", "status": f"rubric deleted: {request.match_info['id']}"})
+        return web.json_response({"error": "Quest not found."}, status=404)
+    runtime.events.publish({"type": "settings", "status": f"quest deleted: {request.match_info['id']}"})
     return web.json_response({"ok": True})
 
 
