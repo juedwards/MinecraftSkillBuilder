@@ -111,3 +111,18 @@ def test_quit_and_unknown(tmp_path):
     assert asyncio.run(console.handle("/quit")) is False
     assert asyncio.run(console.handle("/nope")) is True
     assert "Unknown command /nope" in out.getvalue()
+
+
+def test_setup_saves_all_credentials_at_once(tmp_path):
+    runtime = Runtime(Settings(), None, llm_factory=lambda creds: EchoLLM(), env_path=tmp_path / ".env",
+                      rubrics_dir=tmp_path / "rubrics", reports_dir=tmp_path / "reports")
+    answers = ["https://me.services.ai.azure.com/", "gpt-5-chat", "secret"]
+
+    async def read(prompt, hidden):
+        assert hidden == prompt.startswith("API key")
+        return answers.pop(0)
+
+    console = TeacherConsole(runtime, Console(io.StringIO(), colour=False, unicode=True), read=read)
+    asyncio.run(console.handle("/setup"))
+    assert runtime.bridge.llm is not None and runtime.settings.azure_model == "gpt-5-chat"
+    assert "AZURE_AI_API_KEY" in (tmp_path / ".env").read_text()

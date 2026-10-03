@@ -208,6 +208,7 @@ SET_HELP = [
 
 COMMAND_HELP = [
     ("/status", "Minecraft, AI and quests in progress"),
+    ("/setup", "connect the AI: Azure endpoint, model and key"),
     ("/settings", "show the settings"),
     ("/set <setting> <value>", "change a setting (/set on its own lists them)"),
     ("/quests", "list the quests"),
@@ -303,7 +304,7 @@ class TeacherConsole:
                 ids = {quest.id: None for quest in self.runtime.rubrics.list()}
                 self._session.completer = NestedCompleter.from_nested_dict({
                     "/help": None, "/status": None, "/settings": None, "/quests": None, "/players": None,
-                    "/clear": None, "/quit": None, "/new": None, "/say": None,
+                    "/clear": None, "/quit": None, "/new": None, "/say": None, "/setup": None,
                     "/set": {name.split()[0].rstrip(","): None for name, _ in SET_HELP} | {"price-out": None},
                     "/show": ids, "/edit": ids, "/delete": ids,
                 })
@@ -339,7 +340,7 @@ class TeacherConsole:
         command, rest = command.lower(), rest.strip()
         handlers: dict[str, Callable[[str], Awaitable[None]]] = {
             "/help": self.cmd_help, "/status": self.cmd_status, "/settings": self.cmd_settings,
-            "/set": self.cmd_set, "/quests": self.cmd_quests, "/show": self.cmd_show, "/quest": self.cmd_show,
+            "/set": self.cmd_set, "/setup": self.cmd_setup, "/quests": self.cmd_quests, "/show": self.cmd_show, "/quest": self.cmd_show,
             "/new": self.cmd_new, "/edit": self.cmd_edit, "/delete": self.cmd_delete,
             "/players": self.cmd_players, "/say": self.cmd_say, "/clear": self.cmd_clear,
         }
@@ -518,6 +519,22 @@ class TeacherConsole:
             raise SettingsError(f"There's no setting called {name}. Type /set to see them.")
         await self.runtime.update_settings(updates)
         self.console.info("Saved.", tone="32")
+
+    async def cmd_setup(self, _: str) -> None:
+        """Ask for the endpoint, model and key together, then test and save them in one go."""
+        s, c = self.runtime.settings, self.console
+        c.write(f"  {c.style('Connect the AI', '1')}  Find these in the Azure AI Foundry portal, on your project's overview")
+        c.write(f"  {c.style('or under Models + endpoints. Press Enter to keep a current value.', '2')}")
+        endpoint = (await self.ask(f"Endpoint{f' [{s.azure_endpoint}]' if s.azure_endpoint else ''}: ")).strip()
+        model = (await self.ask(f"Model deployment name{f' [{s.azure_model}]' if s.azure_model else ''}: ")).strip()
+        key = (await self.ask(f"API key{' [keep current]' if s.azure_api_key else ''} (hidden): ", True)).strip()
+        updates = {k: v for k, v in (("azure_endpoint", endpoint), ("azure_model", model), ("api_key", key)) if v}
+        if not updates:
+            c.info("Not changed.")
+            return
+        c.info("Testing the connection...")
+        await self.runtime.update_settings(updates)
+        c.info(f"Connected to {self.runtime.model_label}. Saved to .env.", tone="32")
 
     async def cmd_quests(self, _: str) -> None:
         quests = self.runtime.rubrics.list()

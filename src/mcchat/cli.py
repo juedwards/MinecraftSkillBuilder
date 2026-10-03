@@ -32,7 +32,7 @@ def app_version() -> str:
 
 def ai_status(console: Console, runtime: Runtime) -> str:
     if runtime.bridge.llm is None:
-        return console.warn("not connected") + "  type !setup in Minecraft, or use Settings on the web page"
+        return console.warn("not connected") + "  type /setup below, or use Settings on the web page"
     if runtime.mock:
         return console.warn("mock echo") + "  (replies repeat the message, no Azure)"
     return console.ok(runtime.model_label) + "  Azure AI Foundry"
